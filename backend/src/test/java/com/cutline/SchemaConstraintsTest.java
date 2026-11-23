@@ -3,6 +3,7 @@ package com.cutline;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.cutline.support.DatabaseCleaner;
 import com.cutline.support.MySqlTestContainer;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,11 +29,7 @@ class SchemaConstraintsTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("SET FOREIGN_KEY_CHECKS = 0");
-        for (String table : new String[] {"payment", "orders", "member_drop_quota", "drop_event", "product", "member", "seller", "idempotency_key"}) {
-            jdbc.execute("TRUNCATE TABLE " + table);
-        }
-        jdbc.execute("SET FOREIGN_KEY_CHECKS = 1");
+        DatabaseCleaner.clean(jdbc);
 
         LocalDateTime now = LocalDateTime.now();
         jdbc.update("INSERT INTO seller (id, name, fee_rate_bps, created_at) VALUES (1, 'shop', 1000, ?)", now);
