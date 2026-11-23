@@ -5,6 +5,11 @@ spring:
     url: jdbc:mysql://localhost:3306/cutline?serverTimezone=UTC&characterEncoding=UTF-8
     username: cutline
     password: cutline
+    hikari:
+      data-source-properties:
+        # UPDATE/UPSERT 결과로 "실제로 바뀐 행 수"를 받는다 (기본값은 "조건에 맞은 행 수").
+        # 구매 한도 upsert에서 한도 초과(변경 없음 = 0)를 구분하기 위해 필요. ADR-003 참고.
+        useAffectedRows: true
   jpa:
     open-in-view: false
     hibernate:
