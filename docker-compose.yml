@@ -1,0 +1,27 @@
+# 로컬 개발용 의존 서비스. 백엔드는 IDE나 ./gradlew bootRun으로 실행한다.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: cutline-mysql
+    environment:
+      MYSQL_DATABASE: cutline
+      MYSQL_USER: cutline
+      MYSQL_PASSWORD: cutline
+      MYSQL_ROOT_PASSWORD: root
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ucutline", "-pcutline"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:
