@@ -8,6 +8,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 /**
  * 모든 에러를 RFC 9457 Problem Details로 응답한다. 클라이언트는 {@code code} 필드로 분기한다.
@@ -30,6 +31,11 @@ public class GlobalExceptionHandler {
                 .toList();
         problem.setProperty("errors", errors);
         return problem;
+    }
+
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    ProblemDetail handle(HandlerMethodValidationException e) {
+        return problem(ErrorCode.INVALID_REQUEST, "요청 파라미터를 확인해 주세요.");
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

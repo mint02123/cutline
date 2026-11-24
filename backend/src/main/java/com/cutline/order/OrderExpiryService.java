@@ -25,8 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>결제가 UNKNOWN(PG 응답 유실)인 주문은 건너뛴다. 돈이 실제로 나갔을 수 있어서, 만료시키면
  * "결제는 됐는데 주문은 만료"가 생긴다. 이런 주문은 PG 조회로 결제 결과를 확정한 뒤 처리한다 (6~7일차).
  *
- * <p>잠금 순서는 주문 생성과 같게 drop_event → member_drop_quota 순이다 (트러블슈팅 002).
- * orders 행은 주문 생성 트랜잭션이 건드리지 않는 기존 행이라 순서 충돌이 없다.
+ * <p>재고·한도 복구는 {@link HoldRelease}가 한다 (잠금 순서 drop_event → member_drop_quota).
  */
 @Service
 public class OrderExpiryService {
@@ -41,14 +40,16 @@ public class OrderExpiryService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
+    private final HoldRelease holdRelease;
     private final Clock clock;
     private final int batchSize;
     private final AtomicLong failures = new AtomicLong();
 
-    public OrderExpiryService(JdbcTemplate jdbc, TransactionTemplate tx, Clock clock,
+    public OrderExpiryService(JdbcTemplate jdbc, TransactionTemplate tx, HoldRelease holdRelease, Clock clock,
                               @Value("${cutline.order.expiry.batch-size:100}") int batchSize) {
         this.jdbc = jdbc;
         this.tx = tx;
+        this.holdRelease = holdRelease;
         this.clock = clock;
         this.batchSize = batchSize;
     }
@@ -104,20 +105,7 @@ public class OrderExpiryService {
             return false;
         }
 
-        var order = jdbc.queryForMap("SELECT drop_id, member_id, qty FROM orders WHERE id = ?", orderId);
-        long dropId = ((Number) order.get("drop_id")).longValue();
-        long memberId = ((Number) order.get("member_id")).longValue();
-        int qty = ((Number) order.get("qty")).intValue();
-
-        int stock = jdbc.update(
-                "UPDATE drop_event SET remaining_qty = remaining_qty + ? WHERE id = ?", qty, dropId);
-        int quota = jdbc.update("""
-                UPDATE member_drop_quota SET used_qty = used_qty - ?
-                WHERE drop_id = ? AND member_id = ? AND used_qty >= ?""", qty, dropId, memberId, qty);
-        if (stock != 1 || quota != 1) {
-            // 주문이 있는데 재고·한도 행이 없거나 모자라면 데이터가 이미 틀어진 것이다. 롤백하고 알린다.
-            throw new IllegalStateException("order " + orderId + " restore mismatch: stock=" + stock + ", quota=" + quota);
-        }
+        holdRelease.release(orderId);
         return true;
     }
 

@@ -79,12 +79,12 @@ public class PaymentService {
     }
 
     /**
-     * 승인됐지만 주문이 이미 끝난 결제를 PG에서 취소한다. 실패하면 결제가 APPROVED로 남고,
+     * 승인됐지만 주문이 이미 끝난(만료·취소·환불) 결제를 PG에서 취소한다. 실패하면 결제가 APPROVED로 남고,
      * 복구 작업이 "APPROVED인데 주문이 PAID가 아닌 결제"를 찾아 다시 취소한다.
      */
     void refund(long orderId, String paymentKey) {
         try {
-            gateway.cancel(paymentKey, orderId, "hold expired before payment was confirmed");
+            gateway.cancel(paymentKey, orderId, "order is no longer payable (expired or canceled)");
             transitions.markRefunded(orderId);
         } catch (RuntimeException e) {
             log.error("refund for order {} failed, reconciler will retry", orderId, e);

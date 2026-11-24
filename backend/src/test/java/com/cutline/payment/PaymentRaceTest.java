@@ -61,6 +61,9 @@ class PaymentRaceTest {
     JdbcTemplate jdbc;
 
     @Autowired
+    com.cutline.consistency.ConsistencyChecker checker;
+
+    @Autowired
     MutableClock clock;
 
     ExecutorService pool;
@@ -172,6 +175,7 @@ class PaymentRaceTest {
         assertThat(countWhere("o.status = 'PENDING_PAYMENT'")).isZero();
         int remaining = jdbc.queryForObject("SELECT remaining_qty FROM drop_event WHERE id = ?", Integer.class, dropId);
         assertThat(remaining + paid).isEqualTo(ORDERS);
+        assertThat(checker.check()).as("정합성 체커").isEmpty();
     }
 
     private int countWhere(String condition) {

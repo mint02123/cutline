@@ -41,6 +41,9 @@ class OrderConcurrencyTest {
     JdbcTemplate jdbc;
 
     @Autowired
+    com.cutline.consistency.ConsistencyChecker checker;
+
+    @Autowired
     MutableClock clock;
 
     Fixtures fx;
@@ -74,6 +77,7 @@ class OrderConcurrencyTest {
         assertThat(count("SELECT COALESCE(SUM(qty), 0) FROM orders WHERE drop_id = ?", dropId)).isEqualTo(100);
         assertThat(count("SELECT COALESCE(SUM(used_qty), 0) FROM member_drop_quota WHERE drop_id = ?", dropId))
                 .as("품절로 실패한 900명의 한도는 롤백돼야 한다").isEqualTo(100);
+        assertThat(checker.check()).as("정합성 체커").isEmpty();
     }
 
     @Test
