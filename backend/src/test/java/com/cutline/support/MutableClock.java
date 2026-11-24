@@ -9,7 +9,7 @@ import java.time.ZoneOffset;
 /** 테스트에서 시간을 원하는 시점으로 옮기기 위한 시계. */
 public class MutableClock extends Clock {
 
-    private Instant now;
+    private volatile Instant now;
 
     public MutableClock(Instant now) {
         this.now = now;
@@ -19,7 +19,7 @@ public class MutableClock extends Clock {
         this.now = now;
     }
 
-    public void advance(Duration duration) {
+    public synchronized void advance(Duration duration) {
         this.now = now.plus(duration);
     }
 

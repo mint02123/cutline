@@ -18,7 +18,12 @@ public enum ErrorCode {
     DROP_NOT_OPEN(HttpStatus.CONFLICT, "아직 열리지 않았거나 종료된 드롭입니다."),
     SOLD_OUT(HttpStatus.CONFLICT, "품절되었습니다."),
     PURCHASE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "1인 구매 한도를 넘었습니다."),
-    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다.");
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
+    ORDER_NOT_PAYABLE(HttpStatus.CONFLICT, "결제할 수 없는 상태의 주문입니다."),
+    HOLD_EXPIRED(HttpStatus.CONFLICT, "결제 대기 시간이 지나 주문이 만료되었습니다."),
+    PAYMENT_AMOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "결제 금액이 주문 금액과 다릅니다."),
+    PAYMENT_IN_PROGRESS(HttpStatus.CONFLICT, "이 주문의 결제를 처리하고 있습니다."),
+    PAYMENT_DECLINED(HttpStatus.UNPROCESSABLE_CONTENT, "결제가 거절되었습니다.");
 
     private final HttpStatus status;
     private final String title;
