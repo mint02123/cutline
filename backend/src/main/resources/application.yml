@@ -25,3 +25,19 @@ management:
     web:
       exposure:
         include: health,info
+
+cutline:
+  pg:
+    # fake: 장애 주입이 되는 가짜 PG (1단계). 3단계에서 tosspayments 구현을 추가한다.
+    provider: fake
+    fake:
+      delay-ms: 0             # 승인·조회·취소마다 걸리는 시간
+      decline-rate: 0         # 거절 확률
+      lost-response-rate: 0   # 승인은 됐는데 응답이 사라질 확률 (결제 UNKNOWN)
+      timeout-rate: 0         # 요청이 PG에 닿지 않을 확률 (결제 UNKNOWN → 조회 후 FAILED)
+  payment:
+    reconciler:
+      interval-ms: 5000
+      # REQUESTED로 이만큼 머문 결제는 서버가 PG 호출 도중 죽은 것으로 보고 PG에 조회한다.
+      # 실제 PG 연동 시 HTTP 타임아웃보다 충분히 길어야 한다.
+      stale-requested-after: PT30S
