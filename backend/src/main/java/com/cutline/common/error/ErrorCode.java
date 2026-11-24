@@ -10,7 +10,15 @@ public enum ErrorCode {
     SELLER_NOT_FOUND(HttpStatus.NOT_FOUND, "판매자를 찾을 수 없습니다."),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다."),
     DROP_NOT_FOUND(HttpStatus.NOT_FOUND, "드롭을 찾을 수 없습니다."),
-    PRODUCT_NOT_OWNED(HttpStatus.FORBIDDEN, "다른 판매자의 상품으로는 드롭을 만들 수 없습니다.");
+    PRODUCT_NOT_OWNED(HttpStatus.FORBIDDEN, "다른 판매자의 상품으로는 드롭을 만들 수 없습니다."),
+    MEMBER_REQUIRED(HttpStatus.UNAUTHORIZED, "회원 식별 정보가 필요합니다."),
+    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더가 필요합니다."),
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT, "같은 멱등 키로 다른 요청을 보냈습니다."),
+    REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "같은 요청을 처리하고 있습니다."),
+    DROP_NOT_OPEN(HttpStatus.CONFLICT, "아직 열리지 않았거나 종료된 드롭입니다."),
+    SOLD_OUT(HttpStatus.CONFLICT, "품절되었습니다."),
+    PURCHASE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "1인 구매 한도를 넘었습니다."),
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String title;
