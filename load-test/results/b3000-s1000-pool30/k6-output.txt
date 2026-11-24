@@ -1,0 +1,7 @@
+time="2026-11-24T16:07:48Z" level=info msg="drop remaining=0 consistency={\"consistent\":true,\"rulesChecked\":6,\"violations\":[]}" source=console
+
+buyers=3000 stock=1000
+orders: created=1000 sold_out=2000 not_open_retries=500 other=0
+order latency: med=5993.1ms p95=7504.3ms p99=7741.5ms max=8069.2ms
+payments: paid=816 rejected=0 p95=5680.6ms p99=6259.7ms
+http: reqs=4321 failed_rate=0 checks=1

@@ -1,0 +1,12 @@
+1529	28.8	89.94	43566	UPDATE `drop_event` SET `remaining_qty` = `remaining_qty` - ? WHERE `id` = ? AND STATUS = ? AND `opens_at` <= ? AND `remaining_qty` >= ?
+2643	2.09	27.63	0	COMMIT
+529	1.59	8.76	0	ROLLBACK
+6344	0.11	11.13	0	SET `autocommit` = ?
+805	0.59	6.93	1.4	UPDATE `payment` SET STATUS = ? , `pg_payment_key` = ? , `approved_at` = ? , `updated_at` = ? WHERE `order_id` = ? AND STATUS IN (...)
+805	0.53	14.69	1	UPDATE `orders` SET STATUS = ? , `version` = `version` + ? , `updated_at` = ? WHERE `id` = ? AND STATUS = ?
+805	0.46	11.62	1.1	INSERT INTO `payment` ( `order_id` , `pg_payment_key` , `amount` , STATUS , `created_at` , `updated_at` ) VALUES (...)
+1529	0.21	2.24	2.1	SELECT `d` . `per_member_limit` , `d` . `hold_minutes` , `d` . `status` , `d` . `opens_at` , `p` . `price` FROM `drop_event` `d` JOIN `produ
+1529	0.2	7.8	2.9	INSERT INTO `idempotency_key` ( `member_id` , `idem_key` , `request_hash` , STATUS , `created_at` ) VALUES (...)
+1000	0.28	5.96	1.2	INSERT INTO `member_drop_quota` ( `drop_id` , `member_id` , `used_qty` ) VALUES (...) AS `incoming` ON DUPLICATE KEY UPDATE `used_qty` = IF 
+805	0.35	9.92	2.6	SELECT `member_id` , `amount` , STATUS , `hold_expires_at` FROM `orders` WHERE `id` = ? FOR UPDATE
+1000	0.28	2.37	1.1	UPDATE `idempotency_key` SET STATUS = ? , `response_status` = ? , `response_body` = ? WHERE `member_id` = ? AND `idem_key` = ?
