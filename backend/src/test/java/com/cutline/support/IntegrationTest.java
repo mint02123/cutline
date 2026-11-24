@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Import;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(properties = "cutline.drop.opener.enabled=false")
+@SpringBootTest(properties = "cutline.scheduling.enabled=false")
 @AutoConfigureMockMvc
 @Import({MySqlTestContainer.class, TestClockConfig.class})
 public @interface IntegrationTest {

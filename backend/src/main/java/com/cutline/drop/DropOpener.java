@@ -3,7 +3,6 @@ package com.cutline.drop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -12,7 +11,6 @@ import org.springframework.stereotype.Component;
  * 주문 쪽도 opens_at을 함께 확인하므로, 이 작업이 늦어도 오픈 전에 팔리는 일은 없다.
  */
 @Component
-@EnableScheduling
 @ConditionalOnProperty(name = "cutline.drop.opener.enabled", havingValue = "true", matchIfMissing = true)
 class DropOpener {
 
