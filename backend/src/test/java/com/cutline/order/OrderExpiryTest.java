@@ -44,6 +44,9 @@ class OrderExpiryTest {
     JdbcTemplate jdbc;
 
     @Autowired
+    com.cutline.consistency.ConsistencyChecker checker;
+
+    @Autowired
     MutableClock clock;
 
     Fixtures fx;
@@ -167,6 +170,7 @@ class OrderExpiryTest {
                 .as("남은 재고 + 점유 중인 수량 = 총수량").isEqualTo(100);
         assertThat(count("SELECT COALESCE(SUM(used_qty), 0) FROM member_drop_quota WHERE drop_id = ?", dropId))
                 .isEqualTo(bought.get());
+        assertThat(checker.check()).as("정합성 체커").isEmpty();
     }
 
     private List<Integer> runConcurrently(int copies, Callable<Integer> task) throws Exception {

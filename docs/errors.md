@@ -30,6 +30,7 @@
 | `PURCHASE_LIMIT_EXCEEDED` | 409 | 1인 구매 한도 초과 (이미 산 수량 포함) |
 | `ORDER_NOT_FOUND` | 404 | 주문 없음, 또는 다른 회원의 주문 |
 | `ORDER_NOT_PAYABLE` | 409 | 취소·환불된 주문에 결제 시도 |
+| `ORDER_NOT_CANCELABLE` | 409 | 만료된 주문 취소 시도 |
 | `HOLD_EXPIRED` | 409 | 결제 대기 시간이 지남. PG 승인 도중 만료됐다면 승인을 취소(환불)한 뒤 이 코드로 응답 |
 | `PAYMENT_AMOUNT_MISMATCH` | 400 | 결제 요청 금액이 주문 금액과 다름 (PG를 부르기 전에 거절) |
 | `PAYMENT_IN_PROGRESS` | 409 | 같은 주문의 결제가 처리 중이거나 결과 확인 중 |
@@ -56,3 +57,20 @@
 
 주문당 결제는 하나뿐이라(`payment.order_id` UNIQUE) 같은 요청을 다시 보내도 이중 결제가 되지 않습니다.
 이미 결제된 주문에 다시 보내면 PG를 부르지 않고 200을 돌려줍니다.
+
+## 주문 취소
+
+`POST /api/orders/{orderId}/cancel`
+
+| 주문 상태 | 결과 |
+| --- | --- |
+| 결제 전 (`PENDING_PAYMENT`) | `CANCELED`, 재고·구매 한도 복구. PG 승인이 진행 중이었다면 그 승인은 자동 취소 |
+| 결제 후 (`PAID`) | `REFUNDED`, 재고·구매 한도 복구, PG 환불 (실패하면 복구 작업이 재시도) |
+| 이미 `CANCELED`/`REFUNDED` | 같은 상태로 200 (멱등) |
+| `EXPIRED` | 409 `ORDER_NOT_CANCELABLE` |
+
+## 내 주문 목록
+
+`GET /api/me/orders?size=20&cursor=...` (size 1~100)
+
+최신순이며, 응답의 `nextCursor`를 다음 요청의 `cursor`로 넘깁니다. 마지막 페이지면 `nextCursor`가 `null`입니다.
