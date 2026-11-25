@@ -127,6 +127,30 @@ class GateFailureTest {
     }
 
     @Test
+    void Redis가_돌아오면_관문을_다시_쓰기_전에_장애_동안_MySQL로_팔린_만큼_토큰을_낮춘다() throws Exception {
+        long dropId = fx.openDrop(219_000, 10, 1);
+        admission.place(fx.member(), dropId, 1, "key-1");
+        resync.resync();
+
+        pauseRedis();
+        for (int i = 0; i < 3; i++) {
+            admission.place(fx.member(), dropId, 1, "key-1"); // 토큰을 쓰지 않고 MySQL에서 팔린다
+        }
+        unpauseRedis();
+        Thread.sleep(400); // 관문 건너뛰기(0.3초)가 끝나기를 기다린다
+        assertThat(remaining(dropId)).isEqualTo(6);
+        // 토큰은 9에서 시간 초과로 포기한 Lua 1건이 늦게 실행된 만큼만 줄어 있다. 남은 재고(6)보다 많다.
+        assertThat(gate.tokens(dropId)).isGreaterThan(6);
+
+        admission.place(fx.member(), dropId, 1, "key-1");
+
+        // 재동기화(5초)를 기다리지 않고, 관문을 쓰기 전에 6으로 낮춘 뒤 1개 통과
+        assertThat(remaining(dropId)).isEqualTo(5);
+        assertThat(gate.tokens(dropId)).isEqualTo(5);
+        assertThat(checker.check()).isEmpty();
+    }
+
+    @Test
     void Redis가_데이터를_잃으면_MySQL에서_다시_적재하고_이미_산_회원은_MySQL_한도가_막는다() {
         long dropId = fx.openDrop(219_000, 10, 1);
         long buyer = fx.member();

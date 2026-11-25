@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -31,6 +33,7 @@ public class OrderAdmissionService {
 
     private final OrderPlacementService placement;
     private final StockGate gate;
+    private final GateResync resync;
     private final boolean gateEnabled;
     private final long skipGateNanos;
     private final Semaphore fallbackPermits;
@@ -38,14 +41,20 @@ public class OrderAdmissionService {
     private final AtomicLong fallbackCount = new AtomicLong();
     /** System.nanoTime 기준. 이 시각 전까지는 Redis를 부르지 않고 바로 MySQL 경로로 간다. 0이면 건너뛰지 않음. */
     private volatile long skipGateUntil;
+    /**
+     * Redis 없이 MySQL 경로에서 주문이 만들어진 드롭. 그만큼 토큰이 MySQL 남은 재고보다 많을 수 있다.
+     * 관문을 다시 쓰기 전에 토큰을 남은 재고로 낮춘다.
+     */
+    private final Set<Long> soldWithoutGate = ConcurrentHashMap.newKeySet();
 
-    public OrderAdmissionService(OrderPlacementService placement, StockGate gate,
+    public OrderAdmissionService(OrderPlacementService placement, StockGate gate, GateResync resync,
                                  @Value("${cutline.gate.enabled:true}") boolean gateEnabled,
                                  @Value("${cutline.gate.fallback.skip-gate-for:PT2S}") Duration skipGateFor,
                                  @Value("${cutline.gate.fallback.max-concurrent:20}") int maxConcurrent,
                                  @Value("${cutline.gate.fallback.wait:PT2S}") Duration fallbackWait) {
         this.placement = placement;
         this.gate = gate;
+        this.resync = resync;
         this.gateEnabled = gateEnabled;
         this.skipGateNanos = skipGateFor.toNanos();
         this.fallbackPermits = new Semaphore(maxConcurrent, true);
@@ -69,6 +78,7 @@ public class OrderAdmissionService {
 
         StockGate.Decision decision;
         try {
+            clampIfSoldWithoutGate(dropId);
             decision = acquire(dropId, memberId, qty);
         } catch (GateUnavailableException e) {
             // 요청마다 Redis 시간 초과(500ms)를 기다리지 않도록 잠시 관문을 건너뛴다. 지나면 다시 Redis를 시도한다.
@@ -117,9 +127,29 @@ public class OrderAdmissionService {
         }
         try {
             fallbackCount.incrementAndGet();
-            return placement.place(memberId, dropId, qty, idempotencyKey);
+            OrderReceipt receipt = placement.place(memberId, dropId, qty, idempotencyKey);
+            // 커밋 뒤에 표시한다. 낮추기가 이 주문을 반영하지 못한 남은 재고를 읽었더라도, 다음 요청이 다시 낮춘다.
+            soldWithoutGate.add(dropId);
+            return receipt;
         } finally {
             fallbackPermits.release();
+        }
+    }
+
+    /**
+     * Redis 장애 동안 MySQL 경로로 팔린 만큼 토큰이 남은 재고보다 많을 수 있다 (실측: 복구 직후 토큰 303, 남은 재고 0).
+     * 그대로 두면 관문이 MySQL에 없는 재고로 요청을 들여보내고, MySQL에서 품절로 실패한 요청이 토큰을 돌려줘
+     * 토큰이 줄지 않는다. 재동기화(5초)를 기다리지 않고 관문을 다시 쓰기 전에 낮춘다.
+     */
+    private void clampIfSoldWithoutGate(long dropId) {
+        if (!soldWithoutGate.remove(dropId)) {
+            return;
+        }
+        try {
+            resync.clamp(dropId);
+        } catch (RuntimeException e) {
+            soldWithoutGate.add(dropId);
+            throw e;
         }
     }
 
@@ -143,6 +173,13 @@ public class OrderAdmissionService {
         OrderPlacementService.Placement placed;
         try {
             placed = placement.placeAndReport(memberId, dropId, qty, idempotencyKey);
+        } catch (CutlineException e) {
+            if (e.code() == ErrorCode.SOLD_OUT) {
+                soldOutAfterAdmit(dropId);
+            } else {
+                releaseQuietly(dropId, memberId, qty);
+            }
+            throw e;
         } catch (RuntimeException e) {
             releaseQuietly(dropId, memberId, qty);
             throw e;
@@ -152,6 +189,21 @@ public class OrderAdmissionService {
             releaseQuietly(dropId, memberId, qty);
         }
         return placed.receipt();
+    }
+
+    /**
+     * 토큰이 MySQL 남은 재고 이하라면, 토큰을 가진 요청은 MySQL에서 품절일 수 없다. 품절이 났다는 것은 토큰이
+     * MySQL보다 많다는 뜻이다(Redis 장애 동안 MySQL 경로로 팔린 경우). 이때 토큰을 돌려주면 없는 재고의 토큰이
+     * 다시 살아나 다음 요청도 헛걸음한다. 실측에서 복구 뒤 낮춘 토큰이 이렇게 41~73개까지 되살아났다.
+     * 그래서 돌려주지 않고 남은 재고로 낮춘다.
+     */
+    private void soldOutAfterAdmit(long dropId) {
+        try {
+            resync.clamp(dropId);
+        } catch (RuntimeException e) {
+            // 낮추지 못하면 토큰은 그대로(이 요청이 쓴 만큼 줄어든 채) 남는다. 재동기화가 맞춘다.
+            log.warn("failed to clamp gate tokens after sold-out drop={}: {}", dropId, e.getMessage());
+        }
     }
 
     private void releaseQuietly(long dropId, long memberId, int qty) {
