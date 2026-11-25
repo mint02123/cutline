@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>하나의 트랜잭션 안에서 순서대로:
  * <ol>
  *   <li>멱등 키 등록 (이미 처리된 요청이면 저장된 응답 반환)</li>
+ *   <li>품절 선판정: 잠금 없는 읽기로 남은 재고가 모자라면 바로 SOLD_OUT (ADR-008)</li>
  *   <li>재고 조건부 차감 (UPDATE 한 번, ADR-002)</li>
  *   <li>1인 구매 한도 증가 (upsert 한 번, ADR-003)</li>
  *   <li>주문 INSERT</li>
@@ -38,12 +40,15 @@ public class OrderPlacementService {
     private final OrderRepository orders;
     private final IdempotencyStore idempotency;
     private final Clock clock;
+    private final boolean soldOutPrecheck;
 
-    public OrderPlacementService(JdbcTemplate jdbc, OrderRepository orders, IdempotencyStore idempotency, Clock clock) {
+    public OrderPlacementService(JdbcTemplate jdbc, OrderRepository orders, IdempotencyStore idempotency, Clock clock,
+                                 @Value("${cutline.order.sold-out-precheck:true}") boolean soldOutPrecheck) {
         this.jdbc = jdbc;
         this.orders = orders;
         this.idempotency = idempotency;
         this.clock = clock;
+        this.soldOutPrecheck = soldOutPrecheck;
     }
 
     @Transactional
@@ -61,6 +66,15 @@ public class OrderPlacementService {
         DropTerms drop = loadTerms(dropId);
         if (qty > drop.perMemberLimit()) {
             throw new CutlineException(ErrorCode.PURCHASE_LIMIT_EXCEEDED);
+        }
+
+        // 품절 선판정 (ADR-008). 아래 조건부 UPDATE는 조건이 거짓이어도 REPEATABLE READ에서 행을 잠그므로,
+        // 품절된 사람까지 재고 행의 잠금 줄에 서게 된다 (1단계 기준선: 품절 응답 p50 6.3초).
+        // loadTerms는 잠금 없는 일관된 읽기라 기다리지 않는다. 여기서 모자라 보이면 잠금 줄에 서지 않고 돌려보낸다.
+        // 이 판단이 틀리는 방향은 "남았는데 품절로 보임"(그 사이 만료·취소로 재고가 돌아온 경우)뿐이고,
+        // 그 사람은 다시 누르면 된다. 팔지 말아야 할 것을 파는 방향의 판단은 여전히 아래 UPDATE가 한다.
+        if (soldOutPrecheck && drop.isOpenAt(now) && drop.remainingQty() < qty) {
+            throw new CutlineException(ErrorCode.SOLD_OUT);
         }
 
         int stock = jdbc.update("""
@@ -91,11 +105,12 @@ public class OrderPlacementService {
 
     private DropTerms loadTerms(Long dropId) {
         List<DropTerms> rows = jdbc.query("""
-                SELECT d.per_member_limit, d.hold_minutes, d.status, d.opens_at, p.price
+                SELECT d.per_member_limit, d.hold_minutes, d.status, d.opens_at, d.remaining_qty, p.price
                 FROM drop_event d JOIN product p ON p.id = d.product_id
                 WHERE d.id = ?""",
                 (rs, i) -> new DropTerms(rs.getInt("per_member_limit"), rs.getInt("hold_minutes"),
-                        rs.getString("status"), rs.getTimestamp("opens_at").toInstant(), rs.getLong("price")),
+                        rs.getString("status"), rs.getTimestamp("opens_at").toInstant(), rs.getInt("remaining_qty"),
+                        rs.getLong("price")),
                 dropId);
         if (rows.isEmpty()) {
             throw new CutlineException(ErrorCode.DROP_NOT_FOUND);
@@ -113,7 +128,8 @@ public class OrderPlacementService {
         }
     }
 
-    private record DropTerms(int perMemberLimit, int holdMinutes, String status, Instant opensAt, long price) {
+    private record DropTerms(int perMemberLimit, int holdMinutes, String status, Instant opensAt, int remainingQty,
+                             long price) {
 
         boolean isOpenAt(Instant now) {
             return "OPEN".equals(status) && !opensAt.isAfter(now);
