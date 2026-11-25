@@ -40,6 +40,9 @@ cutline:
     enabled: true
     # 관문 키 보관 기간. 드롭이 끝난 뒤 남은 키를 치운다.
     key-ttl: P7D
+    resync:
+      # 토큰을 MySQL 남은 재고에 맞추는 주기. 모자란 토큰은 두 주기 연속 같을 때만 채운다.
+      interval-ms: 5000
   pg:
     # fake: 장애 주입이 되는 가짜 PG (1단계). 3단계에서 tosspayments 구현을 추가한다.
     provider: fake

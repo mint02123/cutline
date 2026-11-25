@@ -63,6 +63,26 @@ class StockGate {
             return 1
             """, Long.class);
 
+    /** 토큰이 ARGV[1]보다 많으면 ARGV[1]로 낮춘다. 낮췄으면 낮추기 전 값, 아니면 -1. */
+    private static final RedisScript<Long> CLAMP = RedisScript.of("""
+            local stock = redis.call('HGET', KEYS[1], 'stock')
+            if not stock then return -1 end
+            if tonumber(stock) > tonumber(ARGV[1]) then
+              redis.call('HSET', KEYS[1], 'stock', ARGV[1])
+              return tonumber(stock)
+            end
+            return -1
+            """, Long.class);
+
+    /** 토큰이 아직 ARGV[1]일 때만 ARGV[2]로 바꾼다 (그 사이 누가 통과·반환했으면 다음 기회로 미룬다). */
+    private static final RedisScript<Long> COMPARE_AND_SET = RedisScript.of("""
+            if redis.call('HGET', KEYS[1], 'stock') == ARGV[1] then
+              redis.call('HSET', KEYS[1], 'stock', ARGV[2])
+              return 1
+            end
+            return 0
+            """, Long.class);
+
     enum Outcome { ADMIT, SOLD_OUT, LIMIT_EXCEEDED, NOT_OPEN, NOT_LOADED }
 
     /** @param boughtBefore 이 회원이 이 드롭의 관문을 이미 통과한 적이 있는지. 거절일 때만 의미가 있다. */
@@ -130,6 +150,18 @@ class StockGate {
         redis.execute(LOAD, List.of(stockKey(dropId)), String.valueOf(row[0]), String.valueOf(row[1]), ttlSeconds,
                 String.valueOf(row[3]));
         return Load.LOADED;
+    }
+
+    /** 토큰이 max보다 많으면 max로 낮추고 낮추기 전 값을, 아니면 null을 돌려준다. */
+    Integer clampTo(long dropId, int max) {
+        Long before = redis.execute(CLAMP, List.of(stockKey(dropId)), String.valueOf(max));
+        return before == null || before < 0 ? null : before.intValue();
+    }
+
+    boolean compareAndSet(long dropId, int expected, int value) {
+        Long changed = redis.execute(COMPARE_AND_SET, List.of(stockKey(dropId)), String.valueOf(expected),
+                String.valueOf(value));
+        return changed != null && changed == 1;
     }
 
     /** 남은 입장 토큰. 키가 없으면 null. 정합성 확인과 테스트용. */

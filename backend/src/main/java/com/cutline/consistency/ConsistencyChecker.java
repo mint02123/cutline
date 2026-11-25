@@ -1,7 +1,9 @@
 package com.cutline.consistency;
 
+import com.cutline.order.GateResync;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -67,10 +69,23 @@ public class ConsistencyChecker {
                     SELECT CONCAT('order ', p.order_id, ': payment=', p.status)
                     FROM payment p WHERE p.status IN ('REQUESTED', 'UNKNOWN')"""));
 
-    private final JdbcTemplate jdbc;
+    /**
+     * MySQL만 보는 규칙과 달리 Redis 관문을 함께 본다 (ADR-009). 토큰이 남은 재고보다 많으면 관문이 MySQL이 팔 수 있는 것보다
+     * 많이 들여보낸다는 뜻이다. MySQL 조건부 UPDATE가 초과판매는 막지만, 설계의 불변 조건이 깨진 것이다.
+     * 반대로 토큰이 적은 것은 진행 중인 주문이 있으면 정상이라 위반으로 보지 않는다(재동기화가 맞춘다).
+     */
+    public static final Rule GATE_RULE = new Rule("gate_tokens_within_stock",
+            "Redis 관문 토큰 <= MySQL 남은 재고 (판매 예정·판매 중인 드롭)",
+            "redis-cli HGET gate:{<dropId>} stock 와 drop_event.remaining_qty 비교");
 
-    ConsistencyChecker(JdbcTemplate jdbc) {
+    public static final int RULE_COUNT = RULES.size() + 1;
+
+    private final JdbcTemplate jdbc;
+    private final GateResync gate;
+
+    ConsistencyChecker(JdbcTemplate jdbc, GateResync gate) {
         this.jdbc = jdbc;
+        this.gate = gate;
     }
 
     public List<Violation> check() {
@@ -79,6 +94,11 @@ public class ConsistencyChecker {
             for (String detail : jdbc.queryForList(rule.sql(), String.class)) {
                 violations.add(new Violation(rule.name(), detail));
             }
+        }
+        try {
+            gate.tokensAboveStock().forEach(detail -> violations.add(new Violation(GATE_RULE.name(), detail)));
+        } catch (DataAccessException e) {
+            violations.add(new Violation(GATE_RULE.name(), "Redis 확인 불가: " + e.getMessage()));
         }
         return violations;
     }

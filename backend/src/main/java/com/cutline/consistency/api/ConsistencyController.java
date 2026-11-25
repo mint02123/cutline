@@ -23,7 +23,7 @@ public class ConsistencyController {
     @GetMapping("/internal/consistency")
     Result check() {
         List<ConsistencyChecker.Violation> violations = checker.check();
-        return new Result(violations.isEmpty(), ConsistencyChecker.RULES.size(), violations);
+        return new Result(violations.isEmpty(), ConsistencyChecker.RULE_COUNT, violations);
     }
 
     public record Result(boolean consistent, int rulesChecked, List<ConsistencyChecker.Violation> violations) {
