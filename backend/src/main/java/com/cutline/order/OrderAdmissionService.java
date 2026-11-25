@@ -13,8 +13,10 @@ import org.springframework.stereotype.Service;
  *
  * <p>순서가 중요하다.
  * <ol>
- *   <li>멱등 재요청은 관문보다 먼저 알아본다. 이미 성공한 주문의 재시도가 관문에서 "한도 초과"로 보이면 안 된다.</li>
- *   <li>관문은 트랜잭션 밖에서 실행한다. 품절된 요청은 DB 커넥션을 잡지 않고 끝난다.</li>
+ *   <li>관문은 트랜잭션 밖에서, DB보다 먼저 실행한다. 처음 온 품절자는 DB 커넥션을 잡지 않고 끝난다.
+ *       (처음에는 멱등 키를 관문 앞에서 DB로 확인했다. 그러자 품절자도 커넥션 풀 줄에 서서 품절 p50이 6.3초였다.)</li>
+ *   <li>관문이 거절해도 이 회원이 통과한 적이 있으면 멱등 재요청인지 DB에서 확인한다. 이미 성공한 주문의 재시도가
+ *       "품절"이나 "한도 초과"로 보이면 안 된다.</li>
  *   <li>통과한 뒤 MySQL에서 주문이 만들어지지 않으면(실패, 동시 멱등 재요청) 토큰을 돌려준다.</li>
  * </ol>
  * Redis에 닿지 못하면 관문 없이 MySQL 경로(품절 선판정 + 조건부 UPDATE)로 처리한다. 느려지지만 정합성은 같다.
@@ -37,7 +39,7 @@ public class OrderAdmissionService {
 
     public OrderReceipt place(Long memberId, Long dropId, int qty, String idempotencyKey) {
         OrderPlacementService.requireKey(idempotencyKey);
-        if (!gateEnabled || placement.isKnownKey(memberId, idempotencyKey)) {
+        if (!gateEnabled) {
             return placement.place(memberId, dropId, qty, idempotencyKey);
         }
 
@@ -49,21 +51,42 @@ public class OrderAdmissionService {
             return placement.place(memberId, dropId, qty, idempotencyKey);
         }
 
-        return switch (decision) {
-            case SOLD_OUT -> throw new CutlineException(ErrorCode.SOLD_OUT);
-            case LIMIT_EXCEEDED -> throw new CutlineException(ErrorCode.PURCHASE_LIMIT_EXCEEDED);
-            // 아직 열리지 않았거나 없는 드롭. MySQL 경로가 DROP_NOT_OPEN / DROP_NOT_FOUND를 정확히 낸다.
-            case NOT_LOADED -> placement.place(memberId, dropId, qty, idempotencyKey);
+        return switch (decision.outcome()) {
             case ADMIT -> placeAdmitted(memberId, dropId, qty, idempotencyKey);
+            case SOLD_OUT -> rejectUnlessReplay(decision, memberId, dropId, qty, idempotencyKey, ErrorCode.SOLD_OUT);
+            case LIMIT_EXCEEDED ->
+                    rejectUnlessReplay(decision, memberId, dropId, qty, idempotencyKey, ErrorCode.PURCHASE_LIMIT_EXCEEDED);
+            case NOT_OPEN -> throw new CutlineException(ErrorCode.DROP_NOT_OPEN);
+            case NOT_LOADED -> throw new IllegalStateException("gate not loaded for drop " + dropId);
         };
+    }
+
+    /**
+     * 관문은 DB를 거치지 않고 거절한다. 다만 이 회원이 관문을 통과한 적이 있으면, 이미 성공한 주문의 재시도일 수 있으므로
+     * 그때만 멱등 키를 DB에서 확인한다. 처음 온 품절자는 DB 커넥션을 잡지 않고 끝난다.
+     */
+    private OrderReceipt rejectUnlessReplay(StockGate.Decision decision, Long memberId, Long dropId, int qty,
+                                            String idempotencyKey, ErrorCode rejection) {
+        if (decision.boughtBefore() && placement.isKnownKey(memberId, idempotencyKey)) {
+            return placement.place(memberId, dropId, qty, idempotencyKey);
+        }
+        throw new CutlineException(rejection);
     }
 
     private StockGate.Decision acquire(long dropId, long memberId, int qty) {
         StockGate.Decision decision = gate.tryAcquire(dropId, memberId, qty);
-        if (decision == StockGate.Decision.NOT_LOADED && gate.loadIfOpen(dropId)) {
-            decision = gate.tryAcquire(dropId, memberId, qty);
+        if (decision.outcome() != StockGate.Outcome.NOT_LOADED) {
+            return decision;
         }
-        return decision;
+        switch (gate.load(dropId)) {
+            case NOT_FOUND -> throw new CutlineException(ErrorCode.DROP_NOT_FOUND);
+            // 닫힌 드롭은 MySQL 조건부 UPDATE가 DROP_NOT_OPEN으로 거절한다. 토큰 없이 팔릴 일이 없다.
+            case CLOSED -> throw new CutlineException(ErrorCode.DROP_NOT_OPEN);
+            case LOADED -> {
+                return gate.tryAcquire(dropId, memberId, qty);
+            }
+        }
+        throw new IllegalStateException();
     }
 
     private OrderReceipt placeAdmitted(Long memberId, Long dropId, int qty, String idempotencyKey) {

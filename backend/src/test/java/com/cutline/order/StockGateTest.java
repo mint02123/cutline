@@ -154,17 +154,46 @@ class StockGateTest {
     }
 
     @Test
-    void 키가_없으면_MySQL_남은_재고로_적재하고_열리지_않은_드롭은_적재하지_않는다() throws Exception {
-        long open = fx.openDrop(219_000, 10, 2);
-        jdbc.update("UPDATE drop_event SET remaining_qty = 7 WHERE id = ?", open);
-        long scheduled = fx.drop(fx.product(fx.seller(), 219_000), 10, 1, "SCHEDULED",
+    void 한도가_남은_회원의_재요청이_관문에서_품절로_걸려도_멱등_키를_확인해_처음_주문을_돌려준다() throws Exception {
+        long dropId = fx.openDrop(219_000, 1, 2);
+        long buyer = fx.member();
+        String first = order(buyer, dropId, "key-1").andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        // 토큰 0, 회원 사용량 1 < 한도 2 → 관문은 "품절"로 거절하지만, 통과한 적 있는 회원이라 DB에서 키를 확인한다.
+        order(buyer, dropId, "key-1").andExpect(status().isCreated())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).isEqualTo(first));
+        order(buyer, dropId, "key-2").andExpect(jsonPath("$.code").value("SOLD_OUT"));
+    }
+
+    @Test
+    void 키가_없으면_MySQL_남은_재고로_적재한다() throws Exception {
+        long dropId = fx.openDrop(219_000, 10, 2);
+        jdbc.update("UPDATE drop_event SET remaining_qty = 7 WHERE id = ?", dropId);
+
+        order(fx.member(), dropId, "key-1").andExpect(status().isCreated());
+
+        assertThat(gate.tokens(dropId)).as("7개로 적재된 뒤 1개 통과").isEqualTo(6);
+    }
+
+    @Test
+    void 오픈_전_요청은_관문이_거절하고_오픈_시각이_지나도_MySQL이_아직_닫혀_있으면_토큰을_돌려준다() throws Exception {
+        long dropId = fx.drop(fx.product(fx.seller(), 219_000), 10, 1, "SCHEDULED",
                 TestClockConfig.BASE_TIME.plusSeconds(60));
+        long buyer = fx.member();
 
-        order(fx.member(), open, "key-1").andExpect(status().isCreated());
-        order(fx.member(), scheduled, "key-1").andExpect(jsonPath("$.code").value("DROP_NOT_OPEN"));
+        order(buyer, dropId, "key-1").andExpect(jsonPath("$.code").value("DROP_NOT_OPEN"));
+        assertThat(gate.tokens(dropId)).as("오픈 전에도 적재해 두고 관문에서 거절한다").isEqualTo(10);
 
-        assertThat(gate.tokens(open)).as("7개로 적재된 뒤 1개 통과").isEqualTo(6);
-        assertThat(gate.tokens(scheduled)).isNull();
+        // 오픈 시각은 지났지만 오픈 스케줄러가 아직 상태를 바꾸지 않은 순간
+        clock.advance(java.time.Duration.ofSeconds(61));
+        order(buyer, dropId, "key-1").andExpect(jsonPath("$.code").value("DROP_NOT_OPEN"));
+        assertThat(gate.tokens(dropId)).as("MySQL에서 막힌 요청의 토큰은 반환된다").isEqualTo(10);
+
+        jdbc.update("UPDATE drop_event SET status = 'OPEN' WHERE id = ?", dropId);
+        order(buyer, dropId, "key-1").andExpect(status().isCreated());
+        assertThat(gate.tokens(dropId)).isEqualTo(9);
+        assertThat(remaining(dropId)).isEqualTo(9);
     }
 
     @Test
