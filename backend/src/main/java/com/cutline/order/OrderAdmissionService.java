@@ -5,7 +5,10 @@ import com.cutline.common.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataAccessException;
+import java.time.Duration;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Service;
 
 /**
@@ -19,7 +22,7 @@ import org.springframework.stereotype.Service;
  *       "품절"이나 "한도 초과"로 보이면 안 된다.</li>
  *   <li>통과한 뒤 MySQL에서 주문이 만들어지지 않으면(실패, 동시 멱등 재요청) 토큰을 돌려준다.</li>
  * </ol>
- * Redis에 닿지 못하면 관문 없이 MySQL 경로(품절 선판정 + 조건부 UPDATE)로 처리한다. 느려지지만 정합성은 같다.
+ * Redis에 닿지 못하면 관문 없이 MySQL 경로(품절 선판정 + 조건부 UPDATE)로 처리한다. 느려지지만 정합성은 같다 (ADR-010).
  */
 @Service
 public class OrderAdmissionService {
@@ -29,12 +32,29 @@ public class OrderAdmissionService {
     private final OrderPlacementService placement;
     private final StockGate gate;
     private final boolean gateEnabled;
+    private final long skipGateNanos;
+    private final Semaphore fallbackPermits;
+    private final long fallbackWaitMillis;
+    private final AtomicLong fallbackCount = new AtomicLong();
+    /** System.nanoTime 기준. 이 시각 전까지는 Redis를 부르지 않고 바로 MySQL 경로로 간다. 0이면 건너뛰지 않음. */
+    private volatile long skipGateUntil;
 
     public OrderAdmissionService(OrderPlacementService placement, StockGate gate,
-                                 @Value("${cutline.gate.enabled:true}") boolean gateEnabled) {
+                                 @Value("${cutline.gate.enabled:true}") boolean gateEnabled,
+                                 @Value("${cutline.gate.fallback.skip-gate-for:PT2S}") Duration skipGateFor,
+                                 @Value("${cutline.gate.fallback.max-concurrent:20}") int maxConcurrent,
+                                 @Value("${cutline.gate.fallback.wait:PT2S}") Duration fallbackWait) {
         this.placement = placement;
         this.gate = gate;
         this.gateEnabled = gateEnabled;
+        this.skipGateNanos = skipGateFor.toNanos();
+        this.fallbackPermits = new Semaphore(maxConcurrent, true);
+        this.fallbackWaitMillis = fallbackWait.toMillis();
+    }
+
+    /** Redis 장애로 MySQL 경로에서 처리한 주문 요청 수 (테스트, 지표용). */
+    public long fallbackCount() {
+        return fallbackCount.get();
     }
 
     public OrderReceipt place(Long memberId, Long dropId, int qty, String idempotencyKey) {
@@ -43,12 +63,18 @@ public class OrderAdmissionService {
             return placement.place(memberId, dropId, qty, idempotencyKey);
         }
 
+        if (skipGateUntil != 0 && System.nanoTime() - skipGateUntil < 0) {
+            return fallback(memberId, dropId, qty, idempotencyKey);
+        }
+
         StockGate.Decision decision;
         try {
             decision = acquire(dropId, memberId, qty);
-        } catch (DataAccessException e) {
-            log.warn("stock gate unavailable, falling back to MySQL path: {}", e.getMessage());
-            return placement.place(memberId, dropId, qty, idempotencyKey);
+        } catch (GateUnavailableException e) {
+            // 요청마다 Redis 시간 초과(500ms)를 기다리지 않도록 잠시 관문을 건너뛴다. 지나면 다시 Redis를 시도한다.
+            skipGateUntil = System.nanoTime() + skipGateNanos;
+            log.warn("stock gate unavailable, using MySQL path for {} ms: {}", skipGateNanos / 1_000_000, e.getMessage());
+            return fallback(memberId, dropId, qty, idempotencyKey);
         }
 
         return switch (decision.outcome()) {
@@ -71,6 +97,30 @@ public class OrderAdmissionService {
             return placement.place(memberId, dropId, qty, idempotencyKey);
         }
         throw new CutlineException(rejection);
+    }
+
+    /**
+     * Redis 없이 MySQL 경로(품절 선판정 + 조건부 UPDATE)로 처리한다 (ADR-010). 정합성은 같고 느리다.
+     * 한 서버에서 동시에 이 경로로 들어가는 요청 수를 제한한다. 관문이 걸러 주던 요청이 한꺼번에 DB 커넥션과
+     * 요청 스레드를 차지하지 않게 하기 위해서다. 자리를 얻지 못하면 503으로 바로 돌려보낸다.
+     */
+    private OrderReceipt fallback(Long memberId, Long dropId, int qty, String idempotencyKey) {
+        boolean permitted;
+        try {
+            permitted = fallbackPermits.tryAcquire(fallbackWaitMillis, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CutlineException(ErrorCode.TOO_BUSY);
+        }
+        if (!permitted) {
+            throw new CutlineException(ErrorCode.TOO_BUSY);
+        }
+        try {
+            fallbackCount.incrementAndGet();
+            return placement.place(memberId, dropId, qty, idempotencyKey);
+        } finally {
+            fallbackPermits.release();
+        }
     }
 
     private StockGate.Decision acquire(long dropId, long memberId, int qty) {
@@ -107,7 +157,7 @@ public class OrderAdmissionService {
     private void releaseQuietly(long dropId, long memberId, int qty) {
         try {
             gate.release(dropId, memberId, qty);
-        } catch (DataAccessException e) {
+        } catch (GateUnavailableException e) {
             // 돌려주지 못한 토큰은 Redis가 MySQL보다 적은 상태(덜 파는 쪽)로 남는다. 재동기화가 맞춘다.
             log.warn("failed to release gate token drop={} member={} qty={}: {}", dropId, memberId, qty, e.getMessage());
         }

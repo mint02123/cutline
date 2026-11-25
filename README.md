@@ -88,6 +88,7 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 - [007 도메인별 패키지 모놀리스로 시작](docs/adr/0007-modular-monolith.md)
 - [008 품절 선판정은 잠금 없는 읽기로](docs/adr/0008-sold-out-precheck.md)
 - [009 Redis는 1차 관문, 어긋나면 덜 파는 쪽으로](docs/adr/0009-redis-gate-undersell-only.md)
+- [010 Redis 장애 시 MySQL 경로로 폴백](docs/adr/0010-redis-down-fallback-to-mysql.md)
 
 **트러블슈팅**: 재현 → 원인 → 해결 → 검증
 - [001 MySQL CHECK 제약 위반이 DataIntegrityViolationException으로 잡히지 않음](docs/troubleshooting/001-mysql-check-constraint-not-translated.md)

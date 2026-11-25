@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -105,7 +106,7 @@ class StockGate {
     }
 
     Decision tryAcquire(long dropId, long memberId, int qty) {
-        Long result = redis.execute(ACQUIRE, keys(dropId), String.valueOf(memberId), String.valueOf(qty), ttlSeconds,
+        Long result = exec(ACQUIRE, keys(dropId), String.valueOf(memberId), String.valueOf(qty), ttlSeconds,
                 String.valueOf(clock.millis()));
         int code = result == null ? -1 : result.intValue();
         Outcome outcome = switch (code % 10) {
@@ -119,7 +120,7 @@ class StockGate {
     }
 
     void release(long dropId, long memberId, int qty) {
-        redis.execute(RELEASE, keys(dropId), String.valueOf(memberId), String.valueOf(qty));
+        exec(RELEASE, keys(dropId), String.valueOf(memberId), String.valueOf(qty));
     }
 
     /**
@@ -147,27 +148,41 @@ class StockGate {
         if ("CLOSED".equals(row[2])) {
             return Load.CLOSED;
         }
-        redis.execute(LOAD, List.of(stockKey(dropId)), String.valueOf(row[0]), String.valueOf(row[1]), ttlSeconds,
+        exec(LOAD, List.of(stockKey(dropId)), String.valueOf(row[0]), String.valueOf(row[1]), ttlSeconds,
                 String.valueOf(row[3]));
         return Load.LOADED;
     }
 
     /** 토큰이 max보다 많으면 max로 낮추고 낮추기 전 값을, 아니면 null을 돌려준다. */
     Integer clampTo(long dropId, int max) {
-        Long before = redis.execute(CLAMP, List.of(stockKey(dropId)), String.valueOf(max));
+        Long before = exec(CLAMP, List.of(stockKey(dropId)), String.valueOf(max));
         return before == null || before < 0 ? null : before.intValue();
     }
 
     boolean compareAndSet(long dropId, int expected, int value) {
-        Long changed = redis.execute(COMPARE_AND_SET, List.of(stockKey(dropId)), String.valueOf(expected),
+        Long changed = exec(COMPARE_AND_SET, List.of(stockKey(dropId)), String.valueOf(expected),
                 String.valueOf(value));
         return changed != null && changed == 1;
     }
 
     /** 남은 입장 토큰. 키가 없으면 null. 정합성 확인과 테스트용. */
     Integer tokens(long dropId) {
-        Object value = redis.opsForHash().get(stockKey(dropId), "stock");
+        Object value;
+        try {
+            value = redis.opsForHash().get(stockKey(dropId), "stock");
+        } catch (DataAccessException e) {
+            throw new GateUnavailableException(e);
+        }
         return value == null ? null : Integer.valueOf(value.toString());
+    }
+
+    /** Redis 실패를 GateUnavailableException으로 바꾼다. MySQL(JdbcTemplate) 실패와 구분하기 위해서다. */
+    private Long exec(RedisScript<Long> script, List<String> keys, String... args) {
+        try {
+            return redis.execute(script, keys, (Object[]) args);
+        } catch (DataAccessException e) {
+            throw new GateUnavailableException(e);
+        }
     }
 
     private static List<String> keys(long dropId) {

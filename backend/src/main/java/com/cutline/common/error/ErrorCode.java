@@ -24,7 +24,8 @@ public enum ErrorCode {
     HOLD_EXPIRED(HttpStatus.CONFLICT, "결제 대기 시간이 지나 주문이 만료되었습니다."),
     PAYMENT_AMOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "결제 금액이 주문 금액과 다릅니다."),
     PAYMENT_IN_PROGRESS(HttpStatus.CONFLICT, "이 주문의 결제를 처리하고 있습니다."),
-    PAYMENT_DECLINED(HttpStatus.UNPROCESSABLE_CONTENT, "결제가 거절되었습니다.");
+    PAYMENT_DECLINED(HttpStatus.UNPROCESSABLE_CONTENT, "결제가 거절되었습니다."),
+    TOO_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "주문이 몰려 잠시 받을 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String title;

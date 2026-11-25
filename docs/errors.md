@@ -35,6 +35,7 @@
 | `PAYMENT_AMOUNT_MISMATCH` | 400 | 결제 요청 금액이 주문 금액과 다름 (PG를 부르기 전에 거절) |
 | `PAYMENT_IN_PROGRESS` | 409 | 같은 주문의 결제가 처리 중이거나 결과 확인 중 |
 | `PAYMENT_DECLINED` | 422 | PG가 거절. 점유 시간 안이면 다른 결제수단으로 다시 시도 가능 |
+| `TOO_BUSY` | 503 | Redis 관문 장애 중 한 서버의 MySQL 경로 동시 처리 한도를 넘음. 잠시 뒤 같은 멱등 키로 다시 시도 |
 
 ## 주문 요청의 멱등성
 
