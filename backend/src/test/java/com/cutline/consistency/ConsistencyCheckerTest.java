@@ -66,7 +66,7 @@ class ConsistencyCheckerTest {
         assertThat(checker.check()).isEmpty();
         mvc.perform(get("/internal/consistency"))
                 .andExpect(jsonPath("$.consistent").value(true))
-                .andExpect(jsonPath("$.rulesChecked").value(ConsistencyChecker.RULES.size()));
+                .andExpect(jsonPath("$.rulesChecked").value(ConsistencyChecker.RULE_COUNT));
     }
 
     @Test
@@ -101,6 +101,7 @@ class ConsistencyCheckerTest {
     void 운영용_SQL_문서에_모든_규칙이_있다() throws Exception {
         String doc = java.nio.file.Files.readString(java.nio.file.Path.of("../docs/consistency-checks.sql"));
         assertThat(ConsistencyChecker.RULES).allMatch(rule -> doc.contains("[" + rule.name() + "]"));
+        assertThat(doc).contains("[" + ConsistencyChecker.GATE_RULE.name() + "]");
     }
 
     private java.util.List<String> rules() {

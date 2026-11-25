@@ -40,3 +40,7 @@ WHERE p.status = 'APPROVED' AND o.status <> 'PAID';
 -- [no_unresolved_payment] 결과를 모르는 결제가 남아 있지 않다 (복구 작업이 처리했어야 함)
 SELECT CONCAT('order ', p.order_id, ': payment=', p.status)
 FROM payment p WHERE p.status IN ('REQUESTED', 'UNKNOWN');
+
+-- [gate_tokens_within_stock] Redis 관문 토큰 <= MySQL 남은 재고 (ADR-009). SQL이 아니라 Redis와 비교한다.
+-- 판매 예정·판매 중인 드롭 목록을 뽑은 뒤, 각 드롭에 대해 redis-cli HGET 'gate:{<id>}' stock 값이 remaining_qty 이하인지 본다.
+SELECT id, remaining_qty FROM drop_event WHERE status IN ('SCHEDULED', 'OPEN');
