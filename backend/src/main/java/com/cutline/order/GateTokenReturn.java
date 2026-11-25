@@ -2,7 +2,6 @@ package com.cutline.order;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -26,7 +25,7 @@ class GateTokenReturn {
     void on(HoldRelease.HoldReleased event) {
         try {
             gate.release(event.dropId(), event.memberId(), event.qty());
-        } catch (DataAccessException e) {
+        } catch (GateUnavailableException e) {
             log.warn("failed to return gate token after release {}: {}", event, e.getMessage());
         }
     }

@@ -1,9 +1,9 @@
 package com.cutline.consistency;
 
 import com.cutline.order.GateResync;
+import com.cutline.order.GateUnavailableException;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -97,7 +97,7 @@ public class ConsistencyChecker {
         }
         try {
             gate.tokensAboveStock().forEach(detail -> violations.add(new Violation(GATE_RULE.name(), detail)));
-        } catch (DataAccessException e) {
+        } catch (GateUnavailableException e) {
             violations.add(new Violation(GATE_RULE.name(), "Redis 확인 불가: " + e.getMessage()));
         }
         return violations;

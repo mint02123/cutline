@@ -14,7 +14,10 @@ import org.springframework.context.annotation.Import;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(properties = "cutline.scheduling.enabled=false")
+@SpringBootTest(properties = {
+        "cutline.scheduling.enabled=false",
+        // Redis 장애 테스트 뒤 다음 테스트가 관문을 건너뛴 상태로 시작하지 않게 짧게 둔다.
+        "cutline.gate.fallback.skip-gate-for=PT0.3S"})
 @AutoConfigureMockMvc
 @Import({MySqlTestContainer.class, RedisTestContainer.class, TestClockConfig.class})
 public @interface IntegrationTest {
