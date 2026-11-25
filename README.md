@@ -14,7 +14,7 @@
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
 | 1 | 도메인 코어 (MySQL만으로 정합성 증명, 기준선 측정) | **완료** |
-| 2 | 대기열과 성능 개선 (Redis) | 예정 |
+| 2 | 대기열과 성능 개선 (Redis) | 진행 중 |
 | 3 | 결제 안정성과 정산 (PG, Kafka, Spring Batch) | 예정 |
 | 4 | 프론트엔드 (Next.js) | 예정 |
 | 5 | 클라우드 인프라 (Terraform, EKS, ArgoCD, 관측) | 예정 |
@@ -86,6 +86,7 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 - [005 점유 만료는 스케줄러 + 조건부 상태 전이로](docs/adr/0005-hold-expiry-scheduler.md)
 - [006 결제 응답 유실은 UNKNOWN 상태와 PG 조회로 확정](docs/adr/0006-unknown-payment-and-reconcile.md)
 - [007 도메인별 패키지 모놀리스로 시작](docs/adr/0007-modular-monolith.md)
+- [008 품절 선판정은 잠금 없는 읽기로](docs/adr/0008-sold-out-precheck.md)
 
 **트러블슈팅**: 재현 → 원인 → 해결 → 검증
 - [001 MySQL CHECK 제약 위반이 DataIntegrityViolationException으로 잡히지 않음](docs/troubleshooting/001-mysql-check-constraint-not-translated.md)
@@ -94,3 +95,4 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 
 **보고서**
 - [1단계 성능 기준선](docs/reports/phase1-baseline.md)
+- [2단계 2-1: 품절 선판정 측정](docs/reports/phase2-1-sold-out-precheck.md)

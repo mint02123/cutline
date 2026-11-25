@@ -19,6 +19,7 @@ BUYERS=3000 STOCK=1000 ./run-baseline.sh b3000-s1000-pool10
 | `STOCK` | 1000 | 드롭 재고 |
 | `HIKARI_MAX` | 10 | 앱 커넥션 풀 크기 |
 | `WARMUP` | 500 | 워밍업 구매자 수 (기록 안 함) |
+| `APP_ARGS` | 없음 | 앱에 덧붙일 설정 (예: `--cutline.order.sold-out-precheck=false`). `environment.txt`에 기록된다 |
 | `PAY_RATIO` | 0.8 | 주문 성공 후 결제 비율 (k6 `-e`로 전달) |
 | `ARRIVAL_MS` | 1000 | 오픈 시각 전후 도착 폭 (k6 `-e`로 전달) |
 
