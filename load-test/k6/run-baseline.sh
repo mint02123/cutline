@@ -25,6 +25,8 @@ mysql_root() { docker exec -i cutline-mysql mysql -uroot -proot --batch --skip-c
 
 echo "== reset database"
 mysql_root -e "DROP DATABASE IF EXISTS cutline; CREATE DATABASE cutline; GRANT ALL ON cutline.* TO 'cutline'@'%';"
+# DB를 새로 만들면 드롭 id가 1부터 다시 시작하므로, 이전 측정의 관문 키(gate:{dropId})도 지운다.
+docker exec cutline-redis redis-cli FLUSHALL >/dev/null
 
 echo "== start backend (hikari max=$HIKARI_MAX)"
 java -Xms1g -Xmx1g -jar "$JAR" \
@@ -71,6 +73,9 @@ mysql_root -e "
   FROM performance_schema.events_statements_summary_by_digest
   WHERE SCHEMA_NAME = 'cutline' ORDER BY SUM_TIMER_WAIT DESC LIMIT 12" > "$OUT/statement-digest.tsv"
 curl -s localhost:8080/internal/consistency > "$OUT/consistency.json"
+# 관문 토큰과 MySQL 남은 재고 (ADR-009: 토큰 <= 남은 재고여야 한다)
+LAST_DROP=$(mysql_root cutline -e "SELECT MAX(id) FROM drop_event")
+echo "drop_id=$LAST_DROP redis_tokens=$(docker exec cutline-redis redis-cli HGET "gate:{$LAST_DROP}" stock) mysql_remaining=$(mysql_root cutline -e "SELECT remaining_qty FROM drop_event WHERE id = $LAST_DROP")" > "$OUT/gate.txt"
 # 오픈 시각부터 마지막 재고가 팔릴 때까지 걸린 시간 (측정 대상 드롭 = 가장 최근 드롭)
 mysql_root cutline -e "
   SELECT d.id, d.total_qty, COUNT(o.id),
@@ -92,6 +97,7 @@ cat "$OUT/sellout.txt"
   echo "jvm_heap: 1g"
   echo "k6: $(k6 version | head -1)"
   echo "mysql: $(mysql_root -e 'SELECT @@version')"
+  echo "redis: $(docker exec cutline-redis redis-server --version | cut -d' ' -f3)"
   echo "innodb_buffer_pool_mb: $(mysql_root -e 'SELECT @@innodb_buffer_pool_size DIV 1048576')"
   echo "hikari_max_pool: $HIKARI_MAX"
   echo "tomcat_max_threads: 200 (default)"
@@ -99,7 +105,7 @@ cat "$OUT/sellout.txt"
   echo "stock: $STOCK"
   echo "app_args: ${APP_ARGS:-(none)}"
   echo "git_commit: $(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet -- backend || echo "-dirty")"
-  echo "topology: k6, backend, MySQL all on one host (docker for MySQL only)"
+  echo "topology: k6, backend, MySQL, Redis all on one host (docker for MySQL and Redis)"
 } > "$OUT/environment.txt"
 
 echo "== results in $OUT"

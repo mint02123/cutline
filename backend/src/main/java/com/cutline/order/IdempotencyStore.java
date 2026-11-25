@@ -40,6 +40,12 @@ class IdempotencyStore {
         }
     }
 
+    boolean exists(Long memberId, String key) {
+        Integer found = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM idempotency_key WHERE member_id = ? AND idem_key = ?", Integer.class, memberId, key);
+        return found != null && found > 0;
+    }
+
     void complete(Long memberId, String key, int responseStatus, OrderReceipt receipt) {
         jdbc.update("""
                 UPDATE idempotency_key SET status = 'COMPLETED', response_status = ?, response_body = ?
