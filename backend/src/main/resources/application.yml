@@ -27,6 +27,9 @@ management:
         include: health,info
 
 cutline:
+  order:
+    # 품절 선판정 (ADR-008). 끄면 1단계처럼 모든 요청이 재고 행 잠금 줄에 선다 (비교 측정용).
+    sold-out-precheck: true
   pg:
     # fake: 장애 주입이 되는 가짜 PG (1단계). 3단계에서 tosspayments 구현을 추가한다.
     provider: fake

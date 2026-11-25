@@ -7,6 +7,7 @@
 #   5) 정합성 체커 결과와 환경 정보를 결과 폴더에 저장
 #
 # 사용: BUYERS=3000 STOCK=1000 ./run-baseline.sh [결과폴더이름]
+# 비교 실험: APP_ARGS='--cutline.order.sold-out-precheck=false' 처럼 앱 설정을 덧붙인다 (environment.txt에 기록)
 # 필요: docker compose, k6, Java 21, ./gradlew bootJar 로 만든 jar
 set -euo pipefail
 
@@ -28,7 +29,7 @@ mysql_root -e "DROP DATABASE IF EXISTS cutline; CREATE DATABASE cutline; GRANT A
 echo "== start backend (hikari max=$HIKARI_MAX)"
 java -Xms1g -Xmx1g -jar "$JAR" \
   --spring.datasource.hikari.maximum-pool-size="$HIKARI_MAX" \
-  --logging.level.root=WARN > "$OUT/app.log" 2>&1 &
+  --logging.level.root=WARN ${APP_ARGS:-} > "$OUT/app.log" 2>&1 &
 APP_PID=$!
 trap 'kill $APP_PID 2>/dev/null || true' EXIT
 for _ in $(seq 1 60); do
@@ -96,6 +97,8 @@ cat "$OUT/sellout.txt"
   echo "tomcat_max_threads: 200 (default)"
   echo "buyers: $BUYERS"
   echo "stock: $STOCK"
+  echo "app_args: ${APP_ARGS:-(none)}"
+  echo "git_commit: $(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet -- backend || echo "-dirty")"
   echo "topology: k6, backend, MySQL all on one host (docker for MySQL only)"
 } > "$OUT/environment.txt"
 

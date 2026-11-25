@@ -1,0 +1,16 @@
+date_utc: 2026-11-25T07:14:52Z
+cpu: 4 x Intel(R) Xeon(R) Processor @ 2.10GHz
+memory_gb: 15
+os: Linux 6.18.44-fc-v880
+java: openjdk version "21.0.13.0.3" 2026-10-24
+jvm_heap: 1g
+k6: k6 v1.4.2 (commit/5b725e8a6a, go1.25.4, linux/amd64)
+mysql: 8.4.13
+innodb_buffer_pool_mb: 128
+hikari_max_pool: 10
+tomcat_max_threads: 200 (default)
+buyers: 3000
+stock: 1000
+app_args: --cutline.order.sold-out-precheck=false --spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED
+git_commit: e0fdfff
+topology: k6, backend, MySQL all on one host (docker for MySQL only)
