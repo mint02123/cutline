@@ -3,6 +3,7 @@ package com.cutline.order;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +33,8 @@ public class GateResync {
     private final StockGate gate;
     /** dropId → 지난번에 본 (토큰, 남은 재고). 모자란 상태가 이어지는지 보는 데만 쓴다. */
     private final Map<Long, int[]> lastShortfall = new HashMap<>();
+    /** synchronized 대신 쓴다. Java 21 가상 스레드는 synchronized 안에서 I/O를 기다리면 캐리어 스레드를 붙잡는다(pinning). */
+    private final ReentrantLock lock = new ReentrantLock();
 
     GateResync(JdbcTemplate jdbc, StockGate gate) {
         this.jdbc = jdbc;
@@ -41,7 +44,16 @@ public class GateResync {
     public record Report(int lowered, int raised, int pending) {
     }
 
-    public synchronized Report resync() {
+    public Report resync() {
+        lock.lock();
+        try {
+            return resyncLocked();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private Report resyncLocked() {
         int lowered = 0;
         int raised = 0;
         int pending = 0;
@@ -76,6 +88,23 @@ public class GateResync {
         lastShortfall.clear();
         lastShortfall.putAll(seen);
         return new Report(lowered, raised, pending);
+    }
+
+    /**
+     * 한 드롭의 토큰을 MySQL 남은 재고 이하로 낮춘다. Redis 장애 동안 토큰 없이 MySQL 경로로 팔린 드롭을
+     * Redis가 돌아온 직후 관문을 다시 쓰기 전에 맞추는 데 쓴다 (ADR-010). 남은 재고는 잠금 없이 읽는다.
+     */
+    public void clamp(long dropId) {
+        List<Integer> remaining = jdbc.queryForList(
+                "SELECT remaining_qty FROM drop_event WHERE id = ?", Integer.class, dropId);
+        if (remaining.isEmpty()) {
+            return;
+        }
+        Integer before = gate.clampTo(dropId, remaining.getFirst());
+        if (before != null) {
+            log.warn("gate tokens above MySQL stock after Redis recovery, lowered drop={} tokens={} -> {}",
+                    dropId, before, remaining.getFirst());
+        }
     }
 
     /** 정합성 체커용: 토큰이 MySQL 남은 재고보다 많은 드롭. "dropId: tokens=…, remaining=…" 형식. */

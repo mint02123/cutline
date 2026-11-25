@@ -1,6 +1,11 @@
 spring:
   application:
     name: cutline
+  threads:
+    virtual:
+      # 관문을 통과한 요청이 커넥션 풀(10)을 기다리며 Tomcat 스레드 200개를 다 쥐면, 관문에서 바로 끝날 품절자도
+      # 스레드를 기다렸다 (품절 p95 4.78초). 가상 스레드에서는 0.94초. ADR-011, docs/reports/phase2-2-redis-gate.md
+      enabled: true
   datasource:
     url: jdbc:mysql://localhost:3306/cutline?serverTimezone=UTC&characterEncoding=UTF-8
     username: cutline

@@ -8,6 +8,7 @@
 #
 # 사용: BUYERS=3000 STOCK=1000 ./run-baseline.sh [결과폴더이름]
 # 비교 실험: APP_ARGS='--cutline.order.sold-out-precheck=false' 처럼 앱 설정을 덧붙인다 (environment.txt에 기록)
+# Redis 장애: REDIS_PAUSE_AT_MS=2000 REDIS_PAUSE_MS=3000 이면 오픈 2초 뒤 Redis 컨테이너를 3초 동안 일시 정지한다 (ADR-010)
 # 필요: docker compose, k6, Java 21, ./gradlew bootJar 로 만든 jar
 set -euo pipefail
 
@@ -61,9 +62,39 @@ k6 run --quiet -e BUYERS="$WARMUP" -e STOCK=$((WARMUP / 3)) -e MEMBER_FROM=$((BU
 lock_metrics > "$OUT/mysql-status-before.tsv"
 mysql_root -e "TRUNCATE performance_schema.events_statements_summary_by_digest;"
 
+REDIS_PAUSE_AT_MS=${REDIS_PAUSE_AT_MS:-}
+REDIS_PAUSE_MS=${REDIS_PAUSE_MS:-3000}
+if [ -n "$REDIS_PAUSE_AT_MS" ]; then
+  # k6 setup이 측정용 드롭을 만들면 그 오픈 시각을 읽어, 오픈 + REDIS_PAUSE_AT_MS에 Redis를 멈춘다.
+  WARMUP_DROP=$(mysql_root cutline -e "SELECT COALESCE(MAX(id), 0) FROM drop_event")
+  (
+    for _ in $(seq 1 600); do
+      OPENS=$(mysql_root cutline -e "SELECT FLOOR(UNIX_TIMESTAMP(opens_at) * 1000) FROM drop_event WHERE id > $WARMUP_DROP ORDER BY id LIMIT 1")
+      [ -n "$OPENS" ] && break
+      sleep 0.1
+    done
+    WAIT_MS=$((OPENS + REDIS_PAUSE_AT_MS - $(date +%s%3N)))
+    [ "$WAIT_MS" -gt 0 ] && sleep "$(awk "BEGIN {print $WAIT_MS / 1000}")"
+    docker pause cutline-redis >/dev/null
+    echo "paused_at_ms_after_open: $(( $(date +%s%3N) - OPENS ))" > "$OUT/redis-pause.txt"
+    sleep "$(awk "BEGIN {print $REDIS_PAUSE_MS / 1000}")"
+    docker unpause cutline-redis >/dev/null
+    echo "unpaused_at_ms_after_open: $(( $(date +%s%3N) - OPENS ))" >> "$OUT/redis-pause.txt"
+  ) &
+  PAUSER_PID=$!
+fi
+
 echo "== run k6"
 k6 run --quiet -e BUYERS="$BUYERS" -e STOCK="$STOCK" -e SUMMARY_OUT="$OUT/k6-summary.json" \
-  drop-rush.js 2>&1 | tee "$OUT/k6-output.txt"
+  drop-rush.js 2>&1 | tee "$OUT/k6-output.txt" \
+  || echo "== k6 thresholds crossed (see k6-output.txt); collecting the rest anyway"
+
+if [ -n "${PAUSER_PID:-}" ]; then
+  wait "$PAUSER_PID" || true
+  docker unpause cutline-redis >/dev/null 2>&1 || true
+  echo "gate_skip_windows: $(grep -c 'stock gate unavailable' "$OUT/app.log" || true)" >> "$OUT/redis-pause.txt"
+  cat "$OUT/redis-pause.txt"
+fi
 
 lock_metrics > "$OUT/mysql-status-after.tsv"
 # 문장별 실행 횟수, 평균·최대 시간(ms), 잠금 대기 합계(ms). 핫 로우를 쥔 동안 무엇이 실행되는지 본다.
@@ -104,6 +135,11 @@ cat "$OUT/sellout.txt"
   echo "buyers: $BUYERS"
   echo "stock: $STOCK"
   echo "app_args: ${APP_ARGS:-(none)}"
+  if [ -n "$REDIS_PAUSE_AT_MS" ]; then
+    echo "redis_pause: at ${REDIS_PAUSE_AT_MS}ms after open for ${REDIS_PAUSE_MS}ms"
+  else
+    echo "redis_pause: (none)"
+  fi
   echo "git_commit: $(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet -- backend || echo "-dirty")"
   echo "topology: k6, backend, MySQL, Redis all on one host (docker for MySQL and Redis)"
 } > "$OUT/environment.txt"

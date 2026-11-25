@@ -89,6 +89,7 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 - [008 품절 선판정은 잠금 없는 읽기로](docs/adr/0008-sold-out-precheck.md)
 - [009 Redis는 1차 관문, 어긋나면 덜 파는 쪽으로](docs/adr/0009-redis-gate-undersell-only.md)
 - [010 Redis 장애 시 MySQL 경로로 폴백](docs/adr/0010-redis-down-fallback-to-mysql.md)
+- [011 요청 처리는 가상 스레드로](docs/adr/0011-virtual-threads-for-request-handling.md)
 
 **트러블슈팅**: 재현 → 원인 → 해결 → 검증
 - [001 MySQL CHECK 제약 위반이 DataIntegrityViolationException으로 잡히지 않음](docs/troubleshooting/001-mysql-check-constraint-not-translated.md)
@@ -98,3 +99,4 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 **보고서**
 - [1단계 성능 기준선](docs/reports/phase1-baseline.md)
 - [2단계 2-1: 품절 선판정 측정](docs/reports/phase2-1-sold-out-precheck.md)
+- [2단계 2-2: Redis 관문 측정](docs/reports/phase2-2-redis-gate.md)

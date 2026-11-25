@@ -1,0 +1,3 @@
+paused_at_ms_after_open: 2058
+unpaused_at_ms_after_open: 5127
+gate_skip_windows: 118

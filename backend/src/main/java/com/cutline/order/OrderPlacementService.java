@@ -83,7 +83,7 @@ public class OrderPlacementService {
 
         int stock = jdbc.update("""
                 UPDATE drop_event SET remaining_qty = remaining_qty - ?
-                WHERE id = ? AND status = 'OPEN' AND opens_at <= ? AND remaining_qty >= ?""",
+                WHERE id = ? AND status IN ('SCHEDULED', 'OPEN') AND opens_at <= ? AND remaining_qty >= ?""",
                 qty, dropId, Timestamp.from(now), qty);
         if (stock == 0) {
             throw new CutlineException(drop.isOpenAt(now) ? ErrorCode.SOLD_OUT : ErrorCode.DROP_NOT_OPEN);
@@ -149,8 +149,14 @@ public class OrderPlacementService {
     private record DropTerms(int perMemberLimit, int holdMinutes, String status, Instant opensAt, int remainingQty,
                              long price) {
 
+        /**
+         * 판매 가능 여부는 오픈 시각으로 정한다. SCHEDULED→OPEN 상태 변경은 스케줄러(1초 주기)가 뒤따라 하는 표시일 뿐이다.
+         * 처음에는 status = 'OPEN'도 조건에 넣었는데, Redis 관문은 오픈 시각에 바로 통과시키므로 상태가 바뀌기 전
+         * 최대 1초 동안 통과한 요청이 MySQL에서 "오픈 전"으로 실패했다. 3,000명 측정에서 재고 행 UPDATE의 30%(449건)가
+         * 이런 헛걸음이었고, 그만큼 재고 행 잠금을 잡았다가 롤백했다.
+         */
         boolean isOpenAt(Instant now) {
-            return "OPEN".equals(status) && !opensAt.isAfter(now);
+            return !"CLOSED".equals(status) && !opensAt.isAfter(now);
         }
     }
 }

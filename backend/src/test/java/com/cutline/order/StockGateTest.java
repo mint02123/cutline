@@ -140,6 +140,18 @@ class StockGateTest {
     }
 
     @Test
+    void 관문을_통과했는데_MySQL에서_품절이면_토큰을_돌려주지_않고_남은_재고로_낮춘다() throws Exception {
+        long dropId = fx.openDrop(219_000, 10, 1);
+        order(fx.member(), dropId, "key-1").andExpect(status().isCreated());
+        // Redis 장애 동안 MySQL 경로로 나머지가 다 팔린 상황: 토큰 9, 남은 재고 0
+        jdbc.update("UPDATE drop_event SET remaining_qty = 0 WHERE id = ?", dropId);
+
+        order(fx.member(), dropId, "key-1").andExpect(jsonPath("$.code").value("SOLD_OUT"));
+
+        assertThat(gate.tokens(dropId)).as("돌려주면 9로 남아 다음 요청도 MySQL까지 간다").isZero();
+    }
+
+    @Test
     void 매진_뒤_멱등_재요청은_관문을_거치지_않고_처음_주문을_돌려준다() throws Exception {
         long dropId = fx.openDrop(219_000, 1, 1);
         long buyer = fx.member();
@@ -177,7 +189,7 @@ class StockGateTest {
     }
 
     @Test
-    void 오픈_전_요청은_관문이_거절하고_오픈_시각이_지나도_MySQL이_아직_닫혀_있으면_토큰을_돌려준다() throws Exception {
+    void 오픈_전_요청은_관문이_거절하고_오픈_시각이_지나면_스케줄러가_상태를_바꾸기_전에도_팔린다() throws Exception {
         long dropId = fx.drop(fx.product(fx.seller(), 219_000), 10, 1, "SCHEDULED",
                 TestClockConfig.BASE_TIME.plusSeconds(60));
         long buyer = fx.member();
@@ -185,15 +197,21 @@ class StockGateTest {
         order(buyer, dropId, "key-1").andExpect(jsonPath("$.code").value("DROP_NOT_OPEN"));
         assertThat(gate.tokens(dropId)).as("오픈 전에도 적재해 두고 관문에서 거절한다").isEqualTo(10);
 
-        // 오픈 시각은 지났지만 오픈 스케줄러가 아직 상태를 바꾸지 않은 순간
+        // 오픈 시각은 지났지만 오픈 스케줄러가 아직 상태를 바꾸지 않은 순간. 관문과 MySQL 모두 오픈 시각으로 판단한다.
         clock.advance(java.time.Duration.ofSeconds(61));
-        order(buyer, dropId, "key-1").andExpect(jsonPath("$.code").value("DROP_NOT_OPEN"));
-        assertThat(gate.tokens(dropId)).as("MySQL에서 막힌 요청의 토큰은 반환된다").isEqualTo(10);
-
-        jdbc.update("UPDATE drop_event SET status = 'OPEN' WHERE id = ?", dropId);
         order(buyer, dropId, "key-1").andExpect(status().isCreated());
         assertThat(gate.tokens(dropId)).isEqualTo(9);
         assertThat(remaining(dropId)).isEqualTo(9);
+    }
+
+    @Test
+    void 닫힌_드롭은_관문을_적재하지_않고_DROP_NOT_OPEN() throws Exception {
+        long dropId = fx.drop(fx.product(fx.seller(), 219_000), 10, 1, "CLOSED",
+                TestClockConfig.BASE_TIME.minusSeconds(60));
+
+        order(fx.member(), dropId, "key-1").andExpect(jsonPath("$.code").value("DROP_NOT_OPEN"));
+        assertThat(gate.tokens(dropId)).isNull();
+        assertThat(remaining(dropId)).isEqualTo(10);
     }
 
     @Test

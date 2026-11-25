@@ -1,0 +1,18 @@
+date_utc: 2026-11-25T12:20:00Z
+cpu: 4 x Intel(R) Xeon(R) Processor @ 2.10GHz
+memory_gb: 15
+os: Linux 6.18.44-fc-v880
+java: openjdk version "21.0.13.0.3" 2026-10-24
+jvm_heap: 1g
+k6: k6 v1.4.2 (commit/5b725e8a6a, go1.25.4, linux/amd64)
+mysql: 8.4.13
+redis: v=7.4.12
+innodb_buffer_pool_mb: 128
+hikari_max_pool: 10
+tomcat_max_threads: 200 (default)
+buyers: 3000
+stock: 1000
+app_args: (none)
+redis_pause: (none)
+git_commit: 7fec9ae-dirty
+topology: k6, backend, MySQL, Redis all on one host (docker for MySQL and Redis)

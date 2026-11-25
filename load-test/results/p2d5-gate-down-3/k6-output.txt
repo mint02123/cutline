@@ -1,0 +1,10 @@
+time="2026-11-25T12:16:01Z" level=info msg="drop remaining=0 consistency={\"consistent\":false,\"rulesChecked\":7,\"violations\":[{\"detail\":\"drop 2: tokens=374 remaining=0\",\"rule\":\"gate_tokens_within_stock\"}]}" source=console
+
+buyers=3000 stock=1000
+orders: created=1000 sold_out=2000 not_open_retries=914 other=0
+order latency: med=5142.9ms p95=6236.4ms p99=6583.1ms max=6804.4ms
+  created:  med=2801.2ms p95=4450.0ms p99=4587.2ms
+  sold out: med=5460.6ms p95=6336.1ms p99=6618.8ms
+payments: paid=798 rejected=0 p95=4668.1ms p99=5263.4ms
+http: reqs=4717 failed_rate=0 checks=0.9996428571428572
+time="2026-11-25T12:16:01Z" level=error msg="thresholds on metrics 'checks' have been crossed"
