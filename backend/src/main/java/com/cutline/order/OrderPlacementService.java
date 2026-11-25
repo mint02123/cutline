@@ -53,14 +53,18 @@ public class OrderPlacementService {
 
     @Transactional
     public OrderReceipt place(Long memberId, Long dropId, int qty, String idempotencyKey) {
-        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 100) {
-            throw new CutlineException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED);
-        }
+        return placeAndReport(memberId, dropId, qty, idempotencyKey).receipt();
+    }
+
+    /** {@link #place}와 같지만, 이번 호출이 주문을 새로 만들었는지(멱등 재요청이 아닌지)도 알려준다. */
+    @Transactional
+    public Placement placeAndReport(Long memberId, Long dropId, int qty, String idempotencyKey) {
+        requireKey(idempotencyKey);
         Instant now = clock.instant();
 
         var replay = idempotency.begin(memberId, idempotencyKey, hash(dropId, qty), now);
         if (replay.isPresent()) {
-            return replay.get();
+            return new Placement(replay.get(), false);
         }
 
         DropTerms drop = loadTerms(dropId);
@@ -100,7 +104,21 @@ public class OrderPlacementService {
 
         OrderReceipt receipt = OrderReceipt.of(order);
         idempotency.complete(memberId, idempotencyKey, 201, receipt);
-        return receipt;
+        return new Placement(receipt, true);
+    }
+
+    /** 이미 등록된 멱등 키인지. 트랜잭션 없이 읽기 한 번. 재요청을 관문보다 먼저 알아보는 데 쓴다. */
+    public boolean isKnownKey(Long memberId, String idempotencyKey) {
+        return idempotencyKey != null && idempotency.exists(memberId, idempotencyKey);
+    }
+
+    static void requireKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 100) {
+            throw new CutlineException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED);
+        }
+    }
+
+    public record Placement(OrderReceipt receipt, boolean created) {
     }
 
     private DropTerms loadTerms(Long dropId) {

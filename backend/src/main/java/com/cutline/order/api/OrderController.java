@@ -6,7 +6,7 @@ import com.cutline.common.web.CurrentMember;
 import com.cutline.order.MyOrdersQuery;
 import com.cutline.order.Order;
 import com.cutline.order.OrderCancelService;
-import com.cutline.order.OrderPlacementService;
+import com.cutline.order.OrderAdmissionService;
 import com.cutline.order.OrderReceipt;
 import com.cutline.order.OrderRepository;
 import com.cutline.order.OrderStatus;
@@ -27,14 +27,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class OrderController {
 
-    private final OrderPlacementService placement;
+    private final OrderAdmissionService admission;
     private final OrderRepository orders;
     private final OrderCancelService cancels;
     private final MyOrdersQuery myOrders;
 
-    public OrderController(OrderPlacementService placement, OrderRepository orders, OrderCancelService cancels,
+    public OrderController(OrderAdmissionService admission, OrderRepository orders, OrderCancelService cancels,
                            MyOrdersQuery myOrders) {
-        this.placement = placement;
+        this.admission = admission;
         this.orders = orders;
         this.cancels = cancels;
         this.myOrders = myOrders;
@@ -45,7 +45,7 @@ public class OrderController {
                                        @PathVariable Long dropId,
                                        @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
                                        @Valid @RequestBody PlaceOrderRequest request) {
-        OrderReceipt receipt = placement.place(memberId, dropId, request.qty(), idempotencyKey);
+        OrderReceipt receipt = admission.place(memberId, dropId, request.qty(), idempotencyKey);
         return ResponseEntity.created(URI.create("/api/orders/" + receipt.orderId())).body(receipt);
     }
 

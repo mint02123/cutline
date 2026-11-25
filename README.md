@@ -87,6 +87,7 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 - [006 결제 응답 유실은 UNKNOWN 상태와 PG 조회로 확정](docs/adr/0006-unknown-payment-and-reconcile.md)
 - [007 도메인별 패키지 모놀리스로 시작](docs/adr/0007-modular-monolith.md)
 - [008 품절 선판정은 잠금 없는 읽기로](docs/adr/0008-sold-out-precheck.md)
+- [009 Redis는 1차 관문, 어긋나면 덜 파는 쪽으로](docs/adr/0009-redis-gate-undersell-only.md)
 
 **트러블슈팅**: 재현 → 원인 → 해결 → 검증
 - [001 MySQL CHECK 제약 위반이 DataIntegrityViolationException으로 잡히지 않음](docs/troubleshooting/001-mysql-check-constraint-not-translated.md)
