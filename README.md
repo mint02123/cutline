@@ -51,6 +51,8 @@ MySQL 하나만으로 드롭 오픈을 받아 낸 기준선입니다. 자세한 
 | POST | `/api/sellers/{sellerId}/products` | 상품 등록 |
 | POST | `/api/sellers/{sellerId}/drops` | 드롭 생성 (오픈 시각, 재고, 1인 한도, 결제 대기 시간) |
 | GET | `/api/drops/{dropId}` | 드롭 조회 (남은 재고, 상태) |
+| POST | `/api/drops/{dropId}/queue` | 대기열 줄 서기 (다시 눌러도 자리는 하나) |
+| GET | `/api/drops/{dropId}/queue/me` | 내 순번, 예상 대기, 다음 조회 간격 |
 | POST | `/api/drops/{dropId}/orders` | 주문 (`Idempotency-Key` 헤더 필수, 재고와 한도를 결제 대기 시간 동안 점유) |
 | GET | `/api/orders/{orderId}` | 주문 조회 |
 | POST | `/api/orders/{orderId}/payments` | 결제 확정 (200 승인, 202 결과 확인 중) |
