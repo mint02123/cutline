@@ -25,4 +25,7 @@ BUYERS=3000 STOCK=1000 ./run-baseline.sh b3000-s1000-pool10
 | `PAY_RATIO` | 0.8 | 주문 성공 후 결제 비율 (k6 `-e`로 전달) |
 | `ARRIVAL_MS` | 1000 | 오픈 시각 전후 도착 폭 (k6 `-e`로 전달) |
 
+`drop-rush.js`는 대기열을 거치지 않으므로 `run-baseline.sh`가 앱을 `--cutline.queue.enforce-admission=false`로 띄운다
+(주문 API가 입장 토큰을 요구하지 않음). 2-1, 2-2 측정과 같은 조건이다.
+
 필요한 것: Docker Compose (MySQL, Redis), k6 v1.x, Java 21. 결과 해석은 `docs/reports/phase1-baseline.md`를 본다.

@@ -194,7 +194,7 @@ class QueueApiTest {
     }
 
     @Test
-    void Redis에_닿지_못하면_503_QUEUE_UNAVAILABLE로_돌려보낸다() throws Exception {
+    void Redis에_닿지_못하면_줄을_건너뛰고_바로_입장_토큰을_준다() throws Exception {
         long dropId = fx.openDrop(219_000, 100, 1);
         long member = fx.member();
         join(member, dropId);
@@ -202,9 +202,12 @@ class QueueApiTest {
         redisContainer.getDockerClient().pauseContainerCmd(redisContainer.getContainerId()).exec();
         paused = true;
 
-        join(member, dropId).andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("QUEUE_UNAVAILABLE"));
-        me(member, dropId).andExpect(status().isServiceUnavailable());
+        join(member, dropId).andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("ADMITTED"))
+                .andExpect(jsonPath("$.bypassed").value(true))
+                .andExpect(jsonPath("$.admissionToken").isString());
+        me(member, dropId).andExpect(jsonPath("$.state").value("ADMITTED"))
+                .andExpect(jsonPath("$.bypassed").value(true));
     }
 
     private Set<Integer> runConcurrently(int requests, java.util.function.IntFunction<Long> memberOf,

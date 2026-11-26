@@ -36,7 +36,9 @@
 | `PAYMENT_IN_PROGRESS` | 409 | 같은 주문의 결제가 처리 중이거나 결과 확인 중 |
 | `PAYMENT_DECLINED` | 422 | PG가 거절. 점유 시간 안이면 다른 결제수단으로 다시 시도 가능 |
 | `TOO_BUSY` | 503 | Redis 관문 장애 중 한 서버의 MySQL 경로 동시 처리 한도를 넘음. 잠시 뒤 같은 멱등 키로 다시 시도 |
-| `QUEUE_UNAVAILABLE` | 503 | 대기열(Redis)에 닿지 못함. 줄 서기를 다시 시도. 이미 섰던 자리는 Redis가 살아 있으면 그대로 남음 |
+| `ADMISSION_REQUIRED` | 403 | 주문 요청에 입장 토큰(`X-Admission-Token`)이 없거나, 다른 회원·다른 드롭의 토큰이거나, 서명이 맞지 않음 |
+| `ADMISSION_EXPIRED` | 403 | 입장 후 주문 가능 시간(2분)이 지남. 다시 줄을 서야 함 |
+| `QUEUE_UNAVAILABLE` | 503 | 대기열(Redis)에 닿지 못하고 우회도 꺼져 있음(`cutline.queue.bypass-on-outage=false`). 기본 설정에서는 나오지 않음 |
 
 ## 주문 요청의 멱등성
 
@@ -51,14 +53,22 @@
 `POST /api/drops/{dropId}/queue`로 줄을 서고, `GET /api/drops/{dropId}/queue/me`로 순번을 묻습니다. 둘 다 같은 본문을 돌려줍니다.
 
 ```json
-{ "dropId": 7, "state": "WAITING", "ahead": 312, "lineLength": 2950, "estimatedWaitSeconds": 2, "pollAfterMs": 1000 }
+{ "dropId": 7, "state": "WAITING", "ahead": 312, "lineLength": 2950, "estimatedWaitSeconds": 2, "pollAfterMs": 1000,
+  "admissionToken": null, "admissionExpiresAt": null, "bypassed": false }
 ```
 
-- 이미 줄에 선 회원이 다시 보내면 새 자리를 만들지 않고 기존 자리를 돌려줍니다. 여러 탭에서 눌러도 자리는 하나입니다.
-- `ahead`는 내 앞에 선 사람 수입니다(0이면 맨 앞). 순번은 Redis에 도착한 순서로 정해집니다.
-- 클라이언트는 `pollAfterMs`만큼 기다렸다가 다시 묻습니다. 입장이 가까울수록 짧아집니다(1~5초).
-- 줄에 서지 않은 회원이 순번을 물으면 200 `NOT_IN_QUEUE`입니다.
+| `state` | 의미 | 클라이언트 동작 |
+| --- | --- | --- |
+| `WAITING` | 줄에서 기다리는 중. `ahead`는 내 앞 인원(0이면 맨 앞) | `pollAfterMs` 뒤 다시 조회 (1~5초, 입장이 가까울수록 짧음) |
+| `ADMITTED` | 입장함 | `admissionToken`을 주문 요청의 `X-Admission-Token` 헤더에 넣어 `admissionExpiresAt` 전에 주문 |
+| `SOLD_OUT` | 줄에 서 있지만 매진 | 품절 안내. 만료·취소로 재고가 돌아오면 같은 자리에서 다시 `WAITING` |
+| `EXPIRED` | 입장했지만 주문하지 않고 입장 시간이 지남 | 다시 줄 서기 (맨 뒤에 섬) |
+| `NOT_IN_QUEUE` | 줄에 서지 않음 | 줄 서기 |
+
+- 이미 줄에 서 있거나 입장한 회원이 다시 줄 서기를 보내면 지금 상태를 돌려줍니다. 여러 탭에서 눌러도 자리는 하나입니다.
+- 순번은 Redis에 도착한 순서로 정해지고, 입장은 서버 전체 기준 초당 200명(설정값)씩 앞에서부터 이루어집니다.
 - 오픈 전이면 409 `DROP_NOT_OPEN`, 매진이면 409 `SOLD_OUT`으로 줄에 세우지 않습니다.
+- 대기열(Redis)에 닿지 못하면 줄을 건너뛰고 바로 `ADMITTED`, `bypassed: true`로 답합니다 (ADR-012). 이때 주문은 느린 MySQL 경로로 처리되며, 몰리면 503 `TOO_BUSY`가 날 수 있습니다.
 
 ## 결제 확정 응답
 

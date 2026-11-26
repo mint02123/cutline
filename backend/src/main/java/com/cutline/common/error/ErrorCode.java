@@ -26,6 +26,8 @@ public enum ErrorCode {
     PAYMENT_IN_PROGRESS(HttpStatus.CONFLICT, "이 주문의 결제를 처리하고 있습니다."),
     PAYMENT_DECLINED(HttpStatus.UNPROCESSABLE_CONTENT, "결제가 거절되었습니다."),
     TOO_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "주문이 몰려 잠시 받을 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    ADMISSION_REQUIRED(HttpStatus.FORBIDDEN, "대기열에서 입장한 뒤 주문할 수 있습니다."),
+    ADMISSION_EXPIRED(HttpStatus.FORBIDDEN, "입장 시간이 지났습니다. 다시 줄을 서 주세요."),
     QUEUE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "대기열에 잠시 접속할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;

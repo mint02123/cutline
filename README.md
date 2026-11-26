@@ -52,8 +52,8 @@ MySQL 하나만으로 드롭 오픈을 받아 낸 기준선입니다. 자세한 
 | POST | `/api/sellers/{sellerId}/drops` | 드롭 생성 (오픈 시각, 재고, 1인 한도, 결제 대기 시간) |
 | GET | `/api/drops/{dropId}` | 드롭 조회 (남은 재고, 상태) |
 | POST | `/api/drops/{dropId}/queue` | 대기열 줄 서기 (다시 눌러도 자리는 하나) |
-| GET | `/api/drops/{dropId}/queue/me` | 내 순번, 예상 대기, 다음 조회 간격 |
-| POST | `/api/drops/{dropId}/orders` | 주문 (`Idempotency-Key` 헤더 필수, 재고와 한도를 결제 대기 시간 동안 점유) |
+| GET | `/api/drops/{dropId}/queue/me` | 내 순번, 예상 대기, 다음 조회 간격. 입장하면 입장 토큰 |
+| POST | `/api/drops/{dropId}/orders` | 주문 (`Idempotency-Key`, `X-Admission-Token` 헤더 필수, 재고와 한도를 결제 대기 시간 동안 점유) |
 | GET | `/api/orders/{orderId}` | 주문 조회 |
 | POST | `/api/orders/{orderId}/payments` | 결제 확정 (200 승인, 202 결과 확인 중) |
 | POST | `/api/orders/{orderId}/cancel` | 취소 (결제 전 취소, 결제 후 환불) |
@@ -92,6 +92,7 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 - [009 Redis는 1차 관문, 어긋나면 덜 파는 쪽으로](docs/adr/0009-redis-gate-undersell-only.md)
 - [010 Redis 장애 시 MySQL 경로로 폴백](docs/adr/0010-redis-down-fallback-to-mysql.md)
 - [011 요청 처리는 가상 스레드로](docs/adr/0011-virtual-threads-for-request-handling.md)
+- [012 대기열은 sorted set, 입장은 서명 토큰, Redis 장애 시 줄을 건너뜀](docs/adr/0012-queue-sorted-set-and-signed-admission.md)
 
 **트러블슈팅**: 재현 → 원인 → 해결 → 검증
 - [001 MySQL CHECK 제약 위반이 DataIntegrityViolationException으로 잡히지 않음](docs/troubleshooting/001-mysql-check-constraint-not-translated.md)
