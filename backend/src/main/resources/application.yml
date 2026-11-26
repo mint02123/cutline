@@ -57,9 +57,21 @@ cutline:
   queue:
     # 대기열 (설계 문서 2-3). 줄과 순번은 Redis sorted set에 있다.
     key-ttl: P7D
-    # 초당 입장 인원. 7일차 입장 스케줄러가 쓰고, 지금은 예상 대기 시간 계산에만 쓴다.
-    # 1단계 측정치(재고 행 초당 약 200건)에서 시작하고, 9일차 측정으로 다시 정한다.
+    # 초당 입장 인원 (서버 전체). 1단계 측정치(재고 행 초당 약 200건)에서 시작하고, 9일차 측정으로 다시 정한다.
     admit-per-second: 200
+    admitter:
+      interval-ms: 100
+      # 스케줄러가 멈췄다 돌아와도 이 시간만큼만 몰아서 입장시킨다.
+      max-burst: PT1S
+    admission:
+      # 입장 후 주문까지 허용하는 시간. 지나면 다시 줄을 서야 한다.
+      ttl: PT2M
+      # 입장 토큰 서명 키 (32바이트 이상). 운영에서는 환경 변수 CUTLINE_QUEUE_ADMISSION_SECRET로 바꾼다.
+      secret: local-dev-admission-secret-change-me-0123456789
+    # 주문 API가 입장 토큰을 요구하는지. 대기열 없이 재던 drop-rush.js 측정을 다시 돌릴 때만 끈다.
+    enforce-admission: true
+    # Redis 장애 시 줄을 건너뛰고 바로 입장 토큰을 준다. 주문은 MySQL 폴백 경로로 간다 (ADR-012).
+    bypass-on-outage: true
     poll:
       # 순번 조회 간격. 예상 대기의 절반마다 묻되 이 범위로 자른다.
       min-ms: 1000

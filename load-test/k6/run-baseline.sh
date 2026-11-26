@@ -32,6 +32,8 @@ docker exec cutline-redis redis-cli FLUSHALL >/dev/null
 echo "== start backend (hikari max=$HIKARI_MAX)"
 java -Xms1g -Xmx1g -jar "$JAR" \
   --spring.datasource.hikari.maximum-pool-size="$HIKARI_MAX" \
+  `# drop-rush.js는 대기열 없이 주문 API로 바로 간다 (2-1, 2-2 측정과 같은 조건). 대기열 측정은 drop-queue.js(9일차)` \
+  --cutline.queue.enforce-admission=false \
   --logging.level.root=WARN ${APP_ARGS:-} > "$OUT/app.log" 2>&1 &
 APP_PID=$!
 trap 'kill $APP_PID 2>/dev/null || true' EXIT
