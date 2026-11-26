@@ -54,6 +54,16 @@ cutline:
     resync:
       # 토큰을 MySQL 남은 재고에 맞추는 주기. 모자란 토큰은 두 주기 연속 같을 때만 채운다.
       interval-ms: 5000
+  queue:
+    # 대기열 (설계 문서 2-3). 줄과 순번은 Redis sorted set에 있다.
+    key-ttl: P7D
+    # 초당 입장 인원. 7일차 입장 스케줄러가 쓰고, 지금은 예상 대기 시간 계산에만 쓴다.
+    # 1단계 측정치(재고 행 초당 약 200건)에서 시작하고, 9일차 측정으로 다시 정한다.
+    admit-per-second: 200
+    poll:
+      # 순번 조회 간격. 예상 대기의 절반마다 묻되 이 범위로 자른다.
+      min-ms: 1000
+      max-ms: 5000
   pg:
     # fake: 장애 주입이 되는 가짜 PG (1단계). 3단계에서 tosspayments 구현을 추가한다.
     provider: fake
