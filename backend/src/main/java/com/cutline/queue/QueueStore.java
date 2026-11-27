@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
  *   <li>{@code queue:{dropId}:meta}: 해시. {@code opens} = 오픈 시각(epoch ms), {@code seq} = 마지막으로 준 도착 순번,
  *       {@code lastAdmit} = 마지막 입장 처리 시각, {@code soldOut} = 있으면 매진 (MySQL 남은 재고 0).</li>
  *   <li>{@code queue:{dropId}:admitted}: 해시. 입장한 회원 id → 입장 만료 시각(epoch ms).</li>
+ *   <li>{@code queue:{dropId}:pending}: sorted set. 입장했지만 아직 주문하지 않은 회원 id → 입장 만료 시각.</li>
  * </ul>
  * 그리고 입장 스케줄러가 돌 드롭 목록 {@code queue:active} (set) 하나.
  *
@@ -77,6 +78,10 @@ class QueueStore {
      * 그래서 서버 여러 대의 스케줄러가 함께 돌아도 전체 입장 속도는 설정값 그대로이고, ZPOPMIN이 스크립트 안에 있어
      * 같은 사람을 두 번 꺼내지 않는다. 스케줄러가 멈췄다가 돌아오면 밀린 만큼 한꺼번에 들이지 않게 maxBurst로 자른다.
      * 오픈 전과 매진 중에는 아무도 들이지 않고, 재개될 때 한꺼번에 들이지 않게 기준 시각만 옮긴다.
+     *
+     * <p>입장했지만 아직 주문하지 않은 사람({@code queue:{dropId}:pending})과 이번 입장 인원의 합이 MySQL 남은 재고(ARGV[6])를
+     * 넘지 않게 자른다. 9일차 측정에서 입장한 사람이 다음 순번 조회 때에야 입장을 알아 주문이 늦게 오는 동안, 재고 1,000개에
+     * 1,193명이 입장해 193명이 입장 뒤에 품절을 받았다. 자를 때는 기준 시각을 지금으로 옮겨 나중에 몰아 들이지 않는다.
      */
     private static final RedisScript<Long> ADMIT = RedisScript.of("""
             if redis.call('EXISTS', KEYS[2]) == 0 then return -1 end
@@ -97,13 +102,25 @@ class QueueStore {
             end
             local n = math.floor(elapsed * rate / 1000)
             if n < 1 then return 0 end
-            redis.call('HSET', KEYS[2], 'lastAdmit', last + math.floor(n * 1000 / rate))
+            redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now)
+            local room = tonumber(ARGV[6]) - redis.call('ZCARD', KEYS[4])
+            if room < n then
+              redis.call('HSET', KEYS[2], 'lastAdmit', now)
+              if room < 1 then return 0 end
+              n = room
+            else
+              redis.call('HSET', KEYS[2], 'lastAdmit', last + math.floor(n * 1000 / rate))
+            end
             local popped = redis.call('ZPOPMIN', KEYS[1], n)
             local until_ = now + tonumber(ARGV[4])
             for i = 1, #popped, 2 do
               redis.call('HSET', KEYS[3], popped[i], until_)
+              redis.call('ZADD', KEYS[4], until_, popped[i])
             end
-            if #popped > 0 and redis.call('TTL', KEYS[3]) < 0 then redis.call('EXPIRE', KEYS[3], ARGV[5]) end
+            if #popped > 0 then
+              if redis.call('TTL', KEYS[3]) < 0 then redis.call('EXPIRE', KEYS[3], ARGV[5]) end
+              if redis.call('TTL', KEYS[4]) < 0 then redis.call('EXPIRE', KEYS[4], ARGV[5]) end
+            end
             return #popped / 2
             """, Long.class);
 
@@ -155,11 +172,22 @@ class QueueStore {
         call(() -> redis.opsForSet().add(ACTIVE_KEY, String.valueOf(dropId)));
     }
 
-    /** @return 이번에 입장한 인원. meta가 사라진 드롭이면 -1 */
-    long admit(long dropId, long nowMillis, int perSecond, long maxBurstMillis, long admissionTtlMillis) {
-        Long admitted = exec(ADMIT, keys(dropId), String.valueOf(nowMillis), String.valueOf(perSecond),
-                String.valueOf(maxBurstMillis), String.valueOf(admissionTtlMillis), ttlSeconds);
+    /**
+     * @param remainingStock MySQL 남은 재고. 주문하지 않은 입장자와 이번 입장 인원의 합이 이 값을 넘지 않는다
+     * @return 이번에 입장한 인원. meta가 사라진 드롭이면 -1
+     */
+    long admit(long dropId, long nowMillis, int perSecond, long maxBurstMillis, long admissionTtlMillis,
+               int remainingStock) {
+        Long admitted = exec(ADMIT,
+                List.of(queueKey(dropId), metaKey(dropId), admittedKey(dropId), pendingKey(dropId)),
+                String.valueOf(nowMillis), String.valueOf(perSecond), String.valueOf(maxBurstMillis),
+                String.valueOf(admissionTtlMillis), ttlSeconds, String.valueOf(remainingStock));
         return admitted == null ? -1 : admitted;
+    }
+
+    /** 입장한 회원이 주문을 시도했다. 더 이상 "주문하지 않은 입장자"로 세지 않는다. */
+    void consumed(long dropId, long memberId) {
+        call(() -> redis.opsForZSet().remove(pendingKey(dropId), String.valueOf(memberId)));
     }
 
     void markSoldOut(long dropId, boolean soldOut) {
@@ -206,5 +234,9 @@ class QueueStore {
 
     static String admittedKey(long dropId) {
         return "queue:{" + dropId + "}:admitted";
+    }
+
+    static String pendingKey(long dropId) {
+        return "queue:{" + dropId + "}:pending";
     }
 }

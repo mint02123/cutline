@@ -70,7 +70,7 @@ public class QueueService {
     private final boolean bypassOnOutage;
 
     QueueService(QueueStore store, DropRepository drops, AdmissionTokens tokens, Clock clock,
-                 @Value("${cutline.queue.admit-per-second:200}") int admitPerSecond,
+                 @Value("${cutline.queue.admit-per-second:100}") int admitPerSecond,
                  @Value("${cutline.queue.admitter.max-burst:PT1S}") Duration maxBurst,
                  @Value("${cutline.queue.admission.ttl:PT2M}") Duration admissionTtl,
                  @Value("${cutline.queue.poll.min-ms:1000}") long minPollMs,
@@ -124,6 +124,7 @@ public class QueueService {
     /**
      * 진행 중인 드롭마다 MySQL 남은 재고로 매진 표시를 맞추고, 줄 앞에서 입장시킨다. 스케줄러가 100ms마다 부른다.
      * 매진 표시는 MySQL 기준이다. 만료·취소로 재고가 돌아오면 표시를 지우고 입장을 다시 연다.
+     * 주문하지 않은 입장자가 남은 재고만큼 있으면 더 들이지 않는다 (입장 뒤 품절을 받는 사람을 만들지 않기 위해).
      *
      * @return 이번에 입장한 인원
      */
@@ -139,8 +140,9 @@ public class QueueService {
                 store.deactivate(dropId);
                 continue;
             }
-            store.markSoldOut(dropId, drop.get().getRemainingQty() == 0);
-            long admitted = store.admit(dropId, now, admitPerSecond, maxBurstMs, admissionTtlMs);
+            int remaining = drop.get().getRemainingQty();
+            store.markSoldOut(dropId, remaining == 0);
+            long admitted = store.admit(dropId, now, admitPerSecond, maxBurstMs, admissionTtlMs, remaining);
             if (admitted < 0) {
                 // 키 보관 기간이 지나 meta가 사라진 드롭
                 store.deactivate(dropId);

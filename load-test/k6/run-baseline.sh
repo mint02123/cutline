@@ -9,6 +9,7 @@
 # 사용: BUYERS=3000 STOCK=1000 ./run-baseline.sh [결과폴더이름]
 # 비교 실험: APP_ARGS='--cutline.order.sold-out-precheck=false' 처럼 앱 설정을 덧붙인다 (environment.txt에 기록)
 # Redis 장애: REDIS_PAUSE_AT_MS=2000 REDIS_PAUSE_MS=3000 이면 오픈 2초 뒤 Redis 컨테이너를 3초 동안 일시 정지한다 (ADR-010)
+# 대기열 측정: SCRIPT=drop-queue.js 이면 줄 서기 → 입장 → 주문 순서로 돌고, 도착 순서와 구매 성공의 일치율(fairness.txt)을 남긴다
 # 필요: docker compose, k6, Java 21, ./gradlew bootJar 로 만든 jar
 set -euo pipefail
 
@@ -19,6 +20,9 @@ OUT="$ROOT/load-test/results/$NAME"
 BUYERS=${BUYERS:-3000}
 STOCK=${STOCK:-1000}
 HIKARI_MAX=${HIKARI_MAX:-10}
+SCRIPT=${SCRIPT:-drop-rush.js}
+# drop-rush.js는 대기열 없이 주문 API로 바로 간다 (2-1, 2-2 측정과 같은 조건). drop-queue.js는 입장 토큰을 받아 주문한다.
+if [ "$SCRIPT" = "drop-rush.js" ]; then QUEUE_ARGS=--cutline.queue.enforce-admission=false; else QUEUE_ARGS=; fi
 JAR=$(ls "$ROOT"/backend/build/libs/cutline-backend-*-SNAPSHOT.jar | grep -v plain | head -1)
 mkdir -p "$OUT"
 
@@ -32,8 +36,7 @@ docker exec cutline-redis redis-cli FLUSHALL >/dev/null
 echo "== start backend (hikari max=$HIKARI_MAX)"
 java -Xms1g -Xmx1g -jar "$JAR" \
   --spring.datasource.hikari.maximum-pool-size="$HIKARI_MAX" \
-  `# drop-rush.js는 대기열 없이 주문 API로 바로 간다 (2-1, 2-2 측정과 같은 조건). 대기열 측정은 drop-queue.js(9일차)` \
-  --cutline.queue.enforce-admission=false \
+  $QUEUE_ARGS \
   --logging.level.root=WARN ${APP_ARGS:-} > "$OUT/app.log" 2>&1 &
 APP_PID=$!
 trap 'kill $APP_PID 2>/dev/null || true' EXIT
@@ -59,7 +62,7 @@ lock_metrics() {
 echo "== warm-up ($WARMUP buyers on a separate drop, not recorded)"
 # JIT 컴파일과 커넥션 풀이 데워지기 전의 첫 요청들이 기준선을 왜곡하지 않게 한 번 돌리고 버린다.
 k6 run --quiet -e BUYERS="$WARMUP" -e STOCK=$((WARMUP / 3)) -e MEMBER_FROM=$((BUYERS + 1)) \
-  -e SUMMARY_OUT="$OUT/warmup-summary.json" drop-rush.js > "$OUT/warmup-output.txt" 2>&1 || true
+  -e SUMMARY_OUT="$OUT/warmup-summary.json" "$SCRIPT" > "$OUT/warmup-output.txt" 2>&1 || true
 
 lock_metrics > "$OUT/mysql-status-before.tsv"
 mysql_root -e "TRUNCATE performance_schema.events_statements_summary_by_digest;"
@@ -88,7 +91,7 @@ fi
 
 echo "== run k6"
 k6 run --quiet -e BUYERS="$BUYERS" -e STOCK="$STOCK" -e SUMMARY_OUT="$OUT/k6-summary.json" \
-  drop-rush.js 2>&1 | tee "$OUT/k6-output.txt" \
+  "$SCRIPT" 2>&1 | tee "$OUT/k6-output.txt" \
   || echo "== k6 thresholds crossed (see k6-output.txt); collecting the rest anyway"
 
 if [ -n "${PAUSER_PID:-}" ]; then
@@ -96,6 +99,15 @@ if [ -n "${PAUSER_PID:-}" ]; then
   docker unpause cutline-redis >/dev/null 2>&1 || true
   echo "gate_skip_windows: $(grep -c 'stock gate unavailable' "$OUT/app.log" || true)" >> "$OUT/redis-pause.txt"
   cat "$OUT/redis-pause.txt"
+fi
+
+if [ "$SCRIPT" = "drop-queue.js" ]; then
+  # 공정성: 처음 누른 시각 순으로 앞에서 STOCK명 중 실제로 산 사람의 비율. 1.0이면 먼저 온 사람이 정확히 산 것이다.
+  grep -o 'FAIR [0-9]* [a-z_0-9]*' "$OUT/k6-output.txt" | sort -k2,2n \
+    | awk -v stock="$STOCK" '{n++; if ($3=="bought") {b++; if (n<=stock) e++}}
+        END {printf "buyers_logged: %d\nbought: %d\nbought_among_first_%d_clicks: %d\nfairness: %.3f\n", n, b, stock, e, e/stock}' \
+    > "$OUT/fairness.txt"
+  cat "$OUT/fairness.txt"
 fi
 
 lock_metrics > "$OUT/mysql-status-after.tsv"
@@ -136,7 +148,8 @@ cat "$OUT/sellout.txt"
   echo "tomcat_max_threads: 200 (default)"
   echo "buyers: $BUYERS"
   echo "stock: $STOCK"
-  echo "app_args: ${APP_ARGS:-(none)}"
+  echo "script: $SCRIPT"
+  echo "app_args: ${QUEUE_ARGS:+$QUEUE_ARGS }${APP_ARGS:-(none)}"
   if [ -n "$REDIS_PAUSE_AT_MS" ]; then
     echo "redis_pause: at ${REDIS_PAUSE_AT_MS}ms after open for ${REDIS_PAUSE_MS}ms"
   else

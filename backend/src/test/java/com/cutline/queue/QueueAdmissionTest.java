@@ -157,6 +157,32 @@ class QueueAdmissionTest {
     }
 
     @Test
+    void 주문하지_않은_입장자와_새_입장_인원의_합은_남은_재고를_넘지_않는다() throws Exception {
+        long dropId = fx.openDrop(219_000, 5, 1);
+        List<Long> members = fx.members(30);
+        for (Long m : members) {
+            join(m, dropId);
+        }
+        queue.admitTick();
+        clock.advance(Duration.ofMillis(100));
+        assertThat(queue.admitTick()).isEqualTo(5); // 속도로는 20명이지만 재고가 5개
+        clock.advance(Duration.ofMillis(100));
+        assertThat(queue.admitTick()).isZero();
+
+        // 입장한 사람이 주문하면 재고와 주문하지 않은 입장자가 함께 줄어 더 들이지 않는다
+        String body = me(members.get(0), dropId).andReturn().getResponse().getContentAsString();
+        order(members.get(0), dropId, JsonPath.read(body, "$.admissionToken")).andExpect(status().isCreated());
+        awaitConsumed(dropId, members.get(0));
+        clock.advance(Duration.ofMillis(100));
+        assertThat(queue.admitTick()).isZero();
+
+        // 주문하지 않은 4명의 입장 시간이 지나면 그 몫을 다음 사람에게 연다
+        clock.advance(Duration.ofMinutes(2));
+        assertThat(queue.admitTick()).isEqualTo(4);
+        me(members.get(5), dropId).andExpect(jsonPath("$.state").value("ADMITTED"));
+    }
+
+    @Test
     void 입장_토큰이_있어야_주문할_수_있다() throws Exception {
         long dropId = fx.openDrop(219_000, 100, 1);
         List<Long> members = fx.members(2);
@@ -262,6 +288,13 @@ class QueueAdmissionTest {
         assertThat(soldOut).isEqualTo(3);
         resumeRedis();
         assertThat(checker.check()).isEmpty();
+    }
+
+    private void awaitConsumed(long dropId, long member) throws InterruptedException {
+        for (int i = 0; i < 100 && redis.opsForZSet().score(QueueStore.pendingKey(dropId), String.valueOf(member)) != null; i++) {
+            Thread.sleep(20);
+        }
+        assertThat(redis.opsForZSet().score(QueueStore.pendingKey(dropId), String.valueOf(member))).isNull();
     }
 
     /** API로 1,000번 부르지 않고 줄을 바로 채운다. meta는 API로 적재한다. */

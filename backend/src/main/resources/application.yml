@@ -57,8 +57,9 @@ cutline:
   queue:
     # 대기열 (설계 문서 2-3). 줄과 순번은 Redis sorted set에 있다.
     key-ttl: P7D
-    # 초당 입장 인원 (서버 전체). 1단계 측정치(재고 행 초당 약 200건)에서 시작하고, 9일차 측정으로 다시 정한다.
-    admit-per-second: 200
+    # 초당 입장 인원 (서버 전체). 입장한 사람의 주문 p95가 1초를 넘지 않는 가장 큰 값 (9일차 측정: 100은 0.46초, 150은 1.21초).
+    # docs/reports/phase2-queue.md
+    admit-per-second: 100
     admitter:
       interval-ms: 100
       # 스케줄러가 멈췄다 돌아와도 이 시간만큼만 몰아서 입장시킨다.

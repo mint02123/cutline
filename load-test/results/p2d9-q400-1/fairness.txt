@@ -1,0 +1,4 @@
+buyers_logged: 3000
+bought: 1000
+bought_among_first_1000_clicks: 976
+fairness: 0.976

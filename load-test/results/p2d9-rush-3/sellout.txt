@@ -1,0 +1,5 @@
+drop_id: 2
+total_qty: 1000
+orders: 1000
+first_order_after_open_ms: 9
+sold_out_after_open_ms: 6423
