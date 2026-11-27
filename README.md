@@ -101,6 +101,7 @@ Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · Flyway · JUnit 5 
 - [010 Redis 장애 시 MySQL 경로로 폴백](docs/adr/0010-redis-down-fallback-to-mysql.md)
 - [011 요청 처리는 가상 스레드로](docs/adr/0011-virtual-threads-for-request-handling.md)
 - [012 대기열은 sorted set, 입장은 서명 토큰, Redis 장애 시 줄을 건너뜀](docs/adr/0012-queue-sorted-set-and-signed-admission.md)
+- [013 재고 행 분할은 하지 않고 6단계로 미룸](docs/adr/0013-defer-stock-row-split.md)
 
 **트러블슈팅**: 재현 → 원인 → 해결 → 검증
 - [001 MySQL CHECK 제약 위반이 DataIntegrityViolationException으로 잡히지 않음](docs/troubleshooting/001-mysql-check-constraint-not-translated.md)
