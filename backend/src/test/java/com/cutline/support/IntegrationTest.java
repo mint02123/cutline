@@ -19,7 +19,9 @@ import org.springframework.context.annotation.Import;
         // Redis 장애 테스트 뒤 다음 테스트가 관문을 건너뛴 상태로 시작하지 않게 짧게 둔다.
         "cutline.gate.fallback.skip-gate-for=PT0.3S",
         // 주문 테스트는 대기열 없이 주문 경로만 본다. 입장 토큰 확인은 queue 패키지 테스트가 켜고 확인한다.
-        "cutline.queue.enforce-admission=false"})
+        "cutline.queue.enforce-admission=false",
+        // 대기열 테스트는 계산하기 쉬운 초당 200명(0.1초에 20명)으로 고정한다. 운영 기본값은 측정으로 정한 100이다.
+        "cutline.queue.admit-per-second=200"})
 @AutoConfigureMockMvc
 @Import({MySqlTestContainer.class, RedisTestContainer.class, TestClockConfig.class})
 public @interface IntegrationTest {

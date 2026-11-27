@@ -51,7 +51,12 @@ public class OrderController {
                                        @Valid @RequestBody PlaceOrderRequest request) {
         // 대기열에서 입장한 회원만 받는다 (설계 문서 2-3). 서명 토큰이라 Redis 장애 중에도 확인할 수 있다.
         admissionGuard.require(admissionToken, dropId, memberId);
-        OrderReceipt receipt = admission.place(memberId, dropId, request.qty(), idempotencyKey);
+        OrderReceipt receipt;
+        try {
+            receipt = admission.place(memberId, dropId, request.qty(), idempotencyKey);
+        } finally {
+            admissionGuard.consumed(dropId, memberId);
+        }
         return ResponseEntity.created(URI.create("/api/orders/" + receipt.orderId())).body(receipt);
     }
 
